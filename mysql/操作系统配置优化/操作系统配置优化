@@ -1,0 +1,22 @@
+
+数据库是基于操作系统的，目前大多数的MySQL都是安装在linux系统之上，
+所以对于操作系统的一些参数配置也影响到MySQL的性能，下面就列出一些常用到
+的系统配置。
+
+网络方面的配置，要修改/etc/sysctl.conf文件
+
+#增加tcp支持的队列书
+net.ipv4.tcp_max_syn_backlog=65535
+#减少断开连接时，资源的回收
+net.ipv4.tcp_max_tw_buckets=8000
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_tw_recycle=1
+net.ipv4.tcp_fin_timeout=10
+
+打开文件数的限制，可以使用ulimit -a 查看目录的各位闲置，可以修改
+/etc/security/limits.conf文件，增加以下内容以修改打开文件数量的限制
+
+*soft nofile 65535
+*hard nofile 65535
+
+除此之外最好在MySQL服务器上关闭iptables,selinux等防火墙软件。

@@ -1,0 +1,86 @@
+1.mysqldump导出语法以及举例:
+mysqldump -h{hostname} [-P{port}] -u{username} -p{password} [--default-character-set=charset] databasename [tablename] > {you file path}
+注：-h和[hostname]之间并没有空格相连，后同之，[]扩起来的为可选项，可不填
+
+hostname表示主机名，本地则填localhost，远程则填写你的远程IP，如192.168.0.3
+username是你的MySQL登录帐号，password则是登录密码
+default-character-set则是你的字符集编码，如gb2312、gbk和utf8（没有横杠哦）
+dbname是你的数据库名称，tablename是你的表名，
+
+参数:
+-t :  仅导出表数据，不导出表结构
+-d:  仅导出表结构, 不导出数据
+-w|–where: 导出部分数据
+示例:
+   1、导出库中所有表结构
+    mysqldump -uroot -pdbpasswd --default-character-set=utf8  -d dbname >db.sql;
+
+    2、导出库中某张表结构
+    mysqldump -uroot -pdbpasswd  --default-character-set=utf8 -d dbname test>db.sql;
+
+    3、导出库中所有表结构及表数据（不加-d）
+    mysqldump -uroot -pdbpasswd  --default-character-set=utf8 dbname >db.sql;
+
+    4、导出某张表(test)结构及表数据（不加-d）
+    mysqldump -uroot -pdbpasswd  --default-character-set=utf8 dbname test>db.sql;
+
+    5、导出某张表数据 -t
+    mysqldump -uroot -pdbpasswd  --default-character-set=utf8 -t dbname test>db.sql;
+
+    6、 导出部分表数据
+    mysqldump -uroot -pdbpasswd  --default-character-set=utf8 dbname -where "ID>2312387" test>db.sql;
+
+    7、 导出所有数据库
+    mysqldump -uroot -p --host=localhost -q -e --all-databases --single-transaction
+
+其他参数:
+
+–quick，-q
+该选项在导出大表时很有用，它强制 mysqldump 从服务器查询取得记录直接输出而不是取得所有记录后将它们缓存到内存中。
+
+--extended-insert, -e
+使用具有多个VALUES列的INSERT语法。这样使导出文件更小，并加速导入时的速度。默认为打开状态，使用--skip-extended-insert取消选项。
+
+--single-transaction
+该选项在导出数据之前提交一个BEGIN SQL语句，BEGIN 不会阻塞任何应用程序且能保证导出时数据库的一致性状态。它只适用于多版本存储引擎，
+仅InnoDB。本选项和--lock-tables 选项是互斥的，因为LOCK TABLES 会使任何挂起的事务隐含提交。
+要想导出大表的话，应结合使用--quick 选项。
+
+2.mysqldump导入语法以及举例:
+
+mysqldump的导入有两种语法要介绍，分别是mysqldump导入法和source导入法
+
+2.1 mysqldump导入
+顾名思义，这种方法则还是用mysqldump这个主角来导入，语法规范如下
+mysqldump -h{hostname} [-P{port}] -u{username} -p{password} [--default-character-set=charset] database [tablename] < {you file path}
+注：导入和导出的语法区别是，导入时小于号，导出是大于号
+这种导入方式实质就是运行前面所导出的那个sql脚本文件
+例:
+mysqldump -h192.168.0.3 -unikey -p123456 --default-character-set=utf8 neem_hanyang commerr < commerr.sql
+
+
+2.2 source导入(推荐 )
+source导入不同于前面，它是一个SQL命令，必须登录进入MySQL在命令行那里才可以运行
+而mysqldump实则是一个管理工具，无须登入MySQ在命令行那里运行，只须在dos下运行即可
+回到上面例子所处的dos界面，我们可以用下面的命令来登入MySQL
+mysql -h{hostname} [-p{port}] -u{username} -p{password}
+举例，我们登入一个远程MySQL可以用下面的命令
+mysql -h192.168.0.3 -unikey -p123456
+登入之后，进入我们要作用的数据库
+mysql > use neem_hanyang;
+然后我们可以使用source命令来运行前面导出的sql脚本实现数据的导入
+mysql > source d:/jabil.sql;
+
+
+
+更多的mysqldump 参数说明请参考：http://blog.chinaunix.net/uid-26805356-id-4138986.html
+更多的mysql 参数调优说明参考：http://blog.csdn.net/yang1982_0907/article/details/20123055
+                                                     http://blog.csdn.net/nightelve/article/details/17393631
+extended-insert对mysqldump及导入性能的影响  http://blog.csdn.net/hw_libo/article/details/39583247
+
+
+参考资料：
+http://www.tuicool.com/articles/6jEBJ3            mysql load data infile的使用 和 SELECT into outfile备份数据库数据
+http://kevin850115.iteye.com/blog/578142       Load Data使用方法
+http://www.jb51.net/article/47525.htm               mysql几种导入导出方法介绍
+
