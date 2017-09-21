@@ -1,0 +1,155 @@
+一、背景
+
+shell下的awk与sed两者都是强大的工具，在做日志处理和文本分析时会大量用到。几行的代码，高效的执行。作为新手，如果能熟练使用，必将对以后的工作帮助很大；
+本文参考的书籍是《Sed and Awk 101 Hacks》（可在ppurl.com上下载）
+
+ 
+二、Sed
+
+Sed stands for Stream Editor.通过Sed，我们可以做文本的替换、插入、修改等操作，最常用的功能就是做文本的替换。先看sed的工作流：
+
+
+通过文件中一行一行的传递给sed程序，做处理并输出，依次类推顺序执行。
+
+Basic Syntax
+
+sed [options] {sed-commands} {input-file}
+sed [options] -f {sed-commands-in-a-file} {input-file}
+
+ 
+
+Substitute
+
+sed '[address-range|pattern-range] s/originalstring/replacement-string/[substitute-flags]' inputfile
+
+example：
+
+    sed -n '/Jason/,+2 p' employee.txt 要加上-n表示只是打印符合的输出，否则buffer里的都会输出
+
+    sed -n '1~2 p' employee.txt For example, address range n~m indicates that sed should start at the nth line and pick up every mth line from there.？ 1~2 matches1,3,5,7, etc.？ 2~2 matches 2,4,6,8, etc.
+
+    sed '/^$/ d' employee.txt 删除所有空白
+
+    sed -n '/Raj/,/Jane/ w output.txt' employee.txt 将两者匹配行之间的内容写到 output.txt文件下，从第一个Raj到最后一个Jane
+
+    sed '1,2 s/^/ls -l /e' files.txt 在文件前加上ls -l，并执行每行
+
+    sed 's/^[0-9][0-9][0-9]/[&]/g' employee.txt & 作为前面匹配成功的字段
+
+    sed 's/\([^,]*\),\([^,]*\),\([^,]*\).*/\1,\3/g' grouping 括号进行分组
+
+    sed -n '/log: \+/ p' log.txt +号前需加上\进行转义，？号也是一样的
+
+    sed -e 'command1' -e 'command2' -e 'command3' -e执行多条命令
+
+    sed -ibak 's/John/Johnny/' employee.txt -i 在原文文件中执行 bak是指生成备份文件
+
+    sed '$ a 106,Jack Johnson,Engineer' employee.txt a 意味着append 是加在最后
+
+    sed '$ i 108,Jack Johnson,Engineer' employee.txt i 意味着 insert 是插入
+
+    sed '2 c 202,Jack Johnson,Engineer' employee.txt C意味着 change ，是代替
+
+    sed 'y/abcde/ABCDE/' employee.txt y可以当做tr的命令，做transform映射转变
+
+替换的flag可以有：
+
+1. g 全局，默认只是每行的第一个；
+2. 数字 每行的第n个替换 ；
+3. i 忽略大小写；
+4. p,w 满足替换的打印或写入文件；
+5. e 替换后，执行每行
+
+ 
+三、Awk
+
+awk是另一个文本处理工具，主要集中在对格式化日志的每行做单独的切割，然后再对每列做数据处理，非常之强大。同样，先看awk的工作流：
+
+
+原理跟sed的差不多，但awk多了BEGIN和END模块，显然，他们分别在程序开始前和结束执行。
+
+Basic Syntax
+
+awk [option] '{action}' intput-file
+awk [option] '/pattern/ {action}' input-file
+awk [option] -f awk-file input-file
+
+Program Structure（Begin，body，End block）
+
+    BEGIN { awk-commands } 1. to print report headers, and initialize variables.; 2. optional
+
+    /pattern/ {action} 1. body block gets executed once for every line in the input file;2.no keyword
+
+    END { awk-commands } 1. to print a report footer and do any clean-up activities. 2. optional.
+
+Conditional Statements and Loops
+
+    if (conditional-expression) {action} else {action}
+
+    conditional-expression ? action1 : action2 ;
+
+    while(condition) {actions}
+
+    do {action}while(condition)
+
+    for(initialization;condition;increment/decrement) {actions}
+
+    break && continue && exit
+
+Array
+
+    syntax: arrayname[string]=value; for (var in array) delete array[var];
+
+    Multi Dimensional Array : array[1,2]=120
+
+    sort array: total = asort(array,arraynew) 返回的是array的length，如果没有第二个参数排序后index被强制换成1,2,...,n(n=total)，若有第二个参数，则排序后的数组为arraynew
+
+    sort array index：total = asorti(array,arraynew) ,排好序的数组index放在arraynew上，格式为arraynew[i]=index
+
+Build-in Variables
+
+    FS - Input Field Separator 每行的分隔符，默认是space，可以设成多个{FS='[,:%]';}
+
+    OFS - Output Field Separator 输出print的时候通过逗号','来告诉awk使用OFS，否则会接连输出。example：{ print "test1","test2" }
+
+    RS - Record Separator 告诉awk如何区 别行，默认是\n
+
+    ORS - Output Record Separator 跟RS对应，ORS是针对输出的行分隔符
+
+    NR - Number of Records 指的是当前记录的行号，如果输入两个文件，这NR依次递增；最后调用时NR是指总条数
+
+    FNR - File "Number of Record" 指的是指定文件的记录行号，区别于NR，如果输入两个文件，则第二个文件的FNR重新从1开始
+
+    FILENAME – Current File Name 文件名
+
+    IGNORECASE=1; 1为不区分大小写
+
+Build-in Function
+
+    int() log() exp() sin() cos() ... 一堆数学函数
+
+    rand() 随机0~1，还可以设种子srand(n)
+
+    index(string,pattern) length(string)
+
+    split(input-string,output-array,separator) 分割，并将其保存至output-array
+
+    substr(input-string, location, length) 获取子串，从location开始以length为长度
+
+User Defined Functions
+
+Syntax: function fn-name(parameters){function-body}
+
+example：
+
+    awk -F: '/^102/ {print "Emp id 102 is", $2}' employee.txt -F指定分隔符为‘:'，$1指的是第一个分割项，也可以用引号引住：-F ':'
+
+    awk -F "," '$2 ~ "Tennis"' items.txt == 是完全匹配，~是弱匹配，即包含有即可。另外还有 !~
+
+    awk -F, '{printf "%5s^^%s\n\n", $2, $3}' employee.txt printf 做格式输出，不管OFS，ORS，%5指的是宽度
+
+    awk -F"," '{print substr($2,1,5)}' items.txt 获得子串
+
+Printf Format Specifiers
+syntax: printf "print format", variable1, variable2, etc.
+

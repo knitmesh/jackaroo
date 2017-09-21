@@ -1,0 +1,304 @@
+Mysql主从环境：
+
+主服务器IP：192.168.199.12     主机名 master
+
+从服务器IP：192.168.199.10   主机名 slave
+
+系统为：centos 6.5  64位
+
+Mysql 5.1.73 64位
+
+ 
+
+ 
+
+sestatus检查
+
+1、关闭防火墙
+
+2、关闭selinux
+
+ 
+
+1.创建安装目录与数据存放目录
+
+ 
+
+mkdir /opt/mysql
+
+mkdir /opt/mysql/data
+
+2.创建mysql用户与组
+
+ 
+
+ useradd mysql
+
+id mysql 
+
+uid=500(mysql) gid=500(mysql) 组=500(mysql)
+
+3.授权安装目录与数据目录
+
+ 
+
+# chown -R mysql.mysql /opt/mysql/ 
+
+# chown -R mysql.mysql /opt/mysql/data
+
+4.安装mysql 依赖包
+
+yum install -y autoconf* automake* zlib* libxml* ncurses-devel* libgcrypt* libtool* openssl*  make cmake gcc gcc-c++ ncurses ncurses-devel
+
+ 
+
+ 
+
+下载mysql数据库
+
+$ wget http://cdn.mysql.com/Downloads/MySQL-5.1/mysql-5.1.73.tar.gz
+
+tar -vzxf mysql-5.1.73.tar.gz
+
+ 
+
+进入mysql安装路径
+
+/opt/mysql
+
+cd mysql-5.1.73
+
+./configure --prefix=/opt/mysql/ --with-charset=utf8 --with-extra-charsets=gbk,utf8,ascii,big5,latin1,binary --with-unix-socket-path=/opt/mysql/tmp/mysql.sock --with-mysqld-user=mysql 
+
+ 
+
+make && make install
+
+ 
+
+初始化数据库
+
+ 
+
+修改配置文件和启停脚本
+
+cd /opt/mysql
+
+ 
+
+ 
+
+mkdir etc log tmp var
+
+使他们具有mysql的权限。
+
+chown -R mysql.mysql etc log tmp var
+
+ 
+
+cp share/mysql/my-medium.cnf  etc/my.cnf
+
+cp share/mysql/mysql.server  bin/
+
+ 
+
+vim etc/my.cnf
+
+ 
+
+在【mysqld】下添加配置项
+
+ 
+
+basedir = /opt/mysql
+
+datadir = /opt/mysql/var
+
+tmpdir = /opt/mysql/tmp
+
+slave-load-tmpdir = /opt/mysql/tmp
+
+pid-file = /opt/mysql/var/mysql.pid
+
+#skip-name-resolve
+
+#skip-symbolic-links
+
+max_connect_errors = 10000
+
+max_connections = 500
+
+wait-timeout = 30
+
+ 
+
+启动数据库
+
+root用户
+
+./bin/mysql_install_db --user=mysql  #安装数据库文件
+
+ ./bin/mysql.server start    #出现下面这行说数据库启动ok了
+
+root用户启动
+
+# /opt/mysql/bin/mysql.server start
+
+starting MySQL.    
+
+ 
+
+上午刚装完MySQL，启动时报如下错误：
+
+starting MySQL.Manager of pid-file quit without updating file.[FAILED]
+
+解决：
+
+/opt/mysql/bin/mysql_install_db --user=mysql
+
+配置mysql用户
+
+ 
+
+ 
+
+使用./bin目录下的mysql命令可以登录到数据库，登录后删除匿名用户并且为root设置密码：
+
+$ mysql -u root
+
+> delete from mysql.user where user='';
+
+> UPDATE mysql.user SET Password = PASSWORD('password') WHERE user='root';
+
+按照以上同样的步骤再搭建一个mysql，注意，如果在同一主机搭建多个mysql实例，那么就需要将端口改成不同才行。
+
+查看一下mysql版本
+
+show variables like '%version_%';
+
+mysql> show variables like '%dir%';
+
+ 
+
+首先在主库新建专门用于同步的数据库账号sync
+
+GRANT REPLICATION SLAVE ON *.* TO 'sync'@'%' IDENTIFIED BY 'jsb';
+
+ 
+
+ 
+
+主库配置
+
+所有的配置项还是在my.cnf中的[mysqld]下添加。
+
+首先server-id作为MySQL服务器的标识，具有相关联上下游同步系统需具有全局唯一性。主库我们将server-id配置为1。其他主库需要添加的配置有：
+
+ 
+
+ 
+
+server-id=1
+
+# 同步过程中需要忽略的表，支持正则表达式。全库同步时，必须屏蔽mysql系统库和test测试库。
+
+replicate-wild-ignore-table = mysql.%
+
+replicate-wild-ignore-table = test.%
+
+# 需要同步的表，多个表需多次指定，这里我们使用全库同步,方便点
+
+# replicate-do-table = database.table
+
+log-bin = mysql-bin  #二进制日志，强制开启
+
+log-bin-index = mysql-bin.index  # 记录二进制日志索引文件
+
+relay-log-index = relay-log.index # 记录中继日志索引文件
+
+ 
+
+从库配置
+
+ 
+
+server-id=2
+
+read-only 
+
+skip-slave-start 
+
+relay-log = mysql-relay 
+
+relay-log-index = relay-log.index
+
+log-bin = mysql-bin
+
+log-bin-index = mysql-bin.index
+
+replicate-wild-ignore-table = mysql.%
+
+replicate-wild-ignore-table = test.%
+
+ 
+
+同步设置
+
+启动数据库并查看主库状态
+
+su - mysql 
+
+$ /opt/mysql/bin/mysql.server start
+
+Starting MySQL SUCCESS! 
+
+$ mysql -uroot -p
+
+-bash: mysql: command not found
+
+[mysql@localhost ~]$ /opt/mysql/bin/mysql -uroot
+
+ mysql> show master status;
+
+记录下 mysql-bin 和pid
+
+记下log文件名字和位置，这里是“mysql-bin。000004” 和 “465”
+
+ 
+
+ 
+
+然后启动从库：
+
+[root@localhost bin]# su - mysql
+
+[mysql@localhost ~]$ /opt/mysql/bin/mysql.server start
+
+Starting MySQL SUCCESS! 
+
+[mysql@localhost ~]$ /opt/mysql/bin/mysql -uroot
+
+ 
+
+mysql> change master to master_host='192.168.199.126',master_port=3306,master_user='sync',master_password='jsb',master_log_file='mysql-bin.000006',master_log_pos=465;
+
+mysql> start slave;  #启动从库
+
+mysql> show slave status\G;
+
+ 
+
+其中Slave_IO_Running和Slave_SQL_Running是yes就对了。
+
+最后，可以验证一下，在主库修改记录，从库可以看到同步过来的变化。
+
+ 
+
+如果显示以下2个YES，则为配置成功：
+
+Slave_IO_Running: Yes   #负责从库去主库读取BINLOG日志，并写入从库的中继日志中
+
+Slave_SQL_Running: Yes  #负责读取并执行中继日志中的BINGLOG,转换SQL语句后应用到数据库汇总
+
+
+ 
