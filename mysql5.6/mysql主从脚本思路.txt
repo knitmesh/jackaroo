@@ -1,0 +1,9 @@
+自动配置MYSQL企业主从实战脚本：（思路）
+---------------------------------------
+1、两台服务器安装MYSQL统一版本。
+2、在master上修改my.cnf的server-id 跟slave服务器不一样。
+3、开启bin-log功能
+4、在master上授权同步用户，show master status;
+5、在slave上change master to xxxx,,xxx,xx,xxx;
+6、在slave start;
+7、在slave查看show slave status\G---I/0、SQL线程都为yes，证明主从配置成功。

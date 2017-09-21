@@ -1,0 +1,71 @@
+Mysql配置为Master/Slave的常用维护命令
+
+master端：
+show master status;   #查看状态：
+show processlist;     #查看slave下MySQL进程信息
+reset master;         #慎用，将清空日志及同步position
+
+slave端：
+CHANGE MASTER TO MASTER_LOG_FILE=’master.000019′;
+show slave status;
+show slave logs;
+show processlist;
+reset slave;          #慎用，将清空slave配置信息、日志及同步position
+
+在从服务器上跳过错误事件
+mysql>stop slave;
+mysql>set global sql_slave_skip_counter = n  (跳过主服务器中的接下来的 n 个事件。此命令对于由语句引起的复制终止有效。仅在从服务器线程没运行的时候有效);
+mysql>start slave;
+
+
+mysql 主服务器中同步用户 必须具有 SUPER ，RELOAD，REPLICATION SLAVE 权限
+当新加从服务器时，需要先在从库上 load data master; 保证和其他从库数据一致
+
+set global sql_slave_skip_counter=n    # 客户端运行，用来跳过几个事件，只有当同步进程出现错误而停止的时候才可以执行。
+reset master                           #主机端运行,清除所有的日志，这条命令就是原来的flush master
+reset slave                            #从机运行，清除日志同步位置标志，并重新生成master.info
+虽然重新生成了master.info,但是并不起用，最好，将从机的mysql进程重启一下，
+load table tblname from master #从机运行，从主机端重读指定的表的数据，每次只能读取一个，受timeout时间限制，需要调整timeout时间。执行这个命令需要同步账号有reload和super权限。以及对相应的库有select权限。如果表比较大，要增加net_read_timeout 和 net_write_timeout的值
+load data from master #从机执行，从主机端重新读入所有的数据。执行这个命令需要同步账号有reload和super权限。以及对相应的库有select权限。如果表比较大，要增加net_read_timeout 和 net_write_timeout的值
+change master to master_def_list #在线改变一些主机设置，多个用逗号间隔,比如
+
+
+change master to
+master_host=’master2.mycompany.com’,
+master_user=’replication’,
+master_password=’bigs3cret’
+master_pos_wait() #从机运行
+show master status #主机运行，看日志导出信息
+show slave hosts #主机运行，看连入的从机的情况。
+show slave status (slave)
+show master logs (master)
+show binlog events [ in 'logname' ] [ from pos ] [ limit [offset,] rows ]
+purge [master] logs to ‘logname’ ; purge [master] logs before ‘date’
+
+
+//显示所有本机上的二进制日志
+mysql> SHOW MASTER LOGS;
+
+
+//删除所有本机上的二进制日志
+mysql> RESET MASTER;
+
+
+//删除所有创建时间在binary-log.xxx之前的二进制日志
+mysql> PURGE MASTER LOGS TO ‘binary-log.xxx’;
+
+
+//只保留最近6天的日志，之前的都删掉
+find /var/intra -type f -mtime +6 -name “*.log” -exec rm -f {} \;
+
+
+//用键盘左上角（也就是Esc下面）那个键包围起来，说明是命令。-1d是昨天，以此类推-1m是上个月等等
+day=`/bin/date -v -1d +%Y%m%d`;
+
+
+//给文件改名
+mv xxx.log xxx-${day}.log;
+
+
+//这里还要加上数据库的用户名密码，作用是更新日志（包括二进制日志和查询日志等等）
+mysqladmin flush-logs

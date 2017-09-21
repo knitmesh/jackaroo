@@ -1,0 +1,200 @@
+解决 mysql数据同步从库Slave_IO_Running: No 
+
+摘要
+今天发现从数据没有写入，就觉得是不是哪里出现问题。
+主库的主机宕机了，从库启动正常，查看日志看看是哪里出现问题了。
+
+由于主库的主机192.168.1.170宕机,再次启来后，从库192.168.1.171连接主库发现报错. Slave_IO_Running: No 
+
+
+[root@mysql-2 ~]# mysql -uroot -ppassword
+Warning: Using a password on the command line interface can be insecure.
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 11
+Server version: 5.6.20-log MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2014, Oracle and/or its affiliates. All rights reserved.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show slave status \G
+*************************** 1. row ***************************
+               Slave_IO_State:
+                  Master_Host: 192.168.1.170
+                  Master_User: backup
+                  Master_Port: 3306
+                Connect_Retry: 60
+              Master_Log_File: mysql-bin.000008
+          Read_Master_Log_Pos: 674040223
+               Relay_Log_File: mysql-relay-bin.000002
+                Relay_Log_Pos: 674040382
+        Relay_Master_Log_File: mysql-bin.000008
+             Slave_IO_Running: No
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB:
+          Replicate_Ignore_DB:
+           Replicate_Do_Table:
+       Replicate_Ignore_Table:
+      Replicate_Wild_Do_Table:
+  Replicate_Wild_Ignore_Table:
+                   Last_Errno: 0
+                   Last_Error:
+                 Skip_Counter: 1
+          Exec_Master_Log_Pos: 674040223
+              Relay_Log_Space: 674040551
+              Until_Condition: None
+               Until_Log_File:
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File:
+           Master_SSL_CA_Path:
+              Master_SSL_Cert:
+            Master_SSL_Cipher:
+               Master_SSL_Key:
+        Seconds_Behind_Master: NULL
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 1236
+                Last_IO_Error: Got fatal error 1236 from master when reading data from binary log: 'Client requested master to start replication from position > file size; the first event 'mysql-bin.000008' at 674040223, the last event read from '/var/lib/mysql/mysql-bin.000008' at 4, the last byte read from '/var/lib/mysql/mysql-bin.000008' at 4.'
+               Last_SQL_Errno: 0
+               Last_SQL_Error:
+  Replicate_Ignore_Server_Ids:
+             Master_Server_Id: 1
+                  Master_UUID: d4280377-2fe1-11e6-8b17-525400e91531
+             Master_Info_File: /var/lib/mysql/master.info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Slave has read all relay log; waiting for the slave I/O thread to update it
+           Master_Retry_Count: 86400
+                  Master_Bind:
+      Last_IO_Error_Timestamp: 160614 18:24:59
+     Last_SQL_Error_Timestamp:
+               Master_SSL_Crl:
+           Master_SSL_Crlpath:
+           Retrieved_Gtid_Set:
+            Executed_Gtid_Set:
+                Auto_Position: 0
+
+1 row in set (0.00 sec)
+
+
+然后查看报错日志：
+
+[root@mysql-2 ~]# tailf -200 /opt/mysql/log/error.log
+ 
+(2016-06-14 18:24:59 1912 [ERROR] Slave I/O: Got fatal error 1236 from master when reading data from binary log: 'Client requested master to start replication from position > file size; the first event 'mysql-bin.000008' at 674040223, the last event read from '/var/lib/mysql/mysql-bin.000008' at 4, the last byte read from '/var/lib/mysql/mysql-bin.000008' at 4.', Error_code: 1236
+2016-06-14 18:24:59 1912 [Note] Slave I/O thread exiting, read up to log 'mysql-bin.000008', position 674040382）
+
+根据错误位置,查找主库上log ‘mysql-bin.000008’ 对应的位置 674040382
+
+[root@mysql-2 mysql]# mysqlbinlog  674040382 > /tmp/test
+
+root@192.168.1.1:mysql# tail -n 10 /tmp/test 
+#140115  0:50:25 server id 1176  end_log_pos 674040222 	Query	thread_id=111	exec_time=0	error_code=0
+SET TIMESTAMP=1389718225/*!*/;
+INSERT INTO user_info_db_86.region_info_table_56 (userid, region, gameflag) VALUES (563625686, 0, 2) ON DUPLICATE KEY UPDATE gameflag = (gameflag | 2)/*!*/;
+# at 165111351
+#140115  0:50:25 server id 1176  end_log_pos 165111378 	Xid = 17877752
+COMMIT/*!*/;
+DELIMITER ;
+# End of log file
+ROLLBACK /* added by mysqlbinlog */;
+/*!50003 SET COMPLETION_TYPE=@OLD_COMPLETION_TYPE*/;
+结果发现主库上位置最后是674040223 比674040382要小. 也就是从库同步找的位置比主库要大，故同步不成功.
+
+
+
+
+解决：
+master 查看：
+
+mysql> show master status;
++------------------+----------+--------------+------------------+-------------------+
+| File             | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++------------------+----------+--------------+------------------+-------------------+
+| mysql-bin.000008 |      234 | yjk          | mysql            |                   |
++------------------+----------+--------------+------------------+-------------------+
+我记得跟之前slave 同步不一样。
+
+
+slave 上面：
+
+mysql>  stop slave;
+Query OK, 0 rows affected (0.00 sec)
+
+
+mysql> change master to
+    -> master_host='192.168.1.170',
+    -> master_user='用户名',
+    -> master_password='密码',
+    -> master_log_file='mysql-bin.000008',
+    -> master_log_pos=234; 
+Query OK, 0 rows affected, 2 warnings (0.08 sec)
+
+
+mysql> start slave;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> show slave status\G
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: 192.168.1.170
+                  Master_User: backup
+                  Master_Port: 3306
+                Connect_Retry: 60
+              Master_Log_File: mysql-bin.000008
+          Read_Master_Log_Pos: 234
+               Relay_Log_File: mysql-relay-bin.000002
+                Relay_Log_Pos: 279
+        Relay_Master_Log_File: mysql-bin.000008
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB:
+          Replicate_Ignore_DB:
+           Replicate_Do_Table:
+       Replicate_Ignore_Table:
+      Replicate_Wild_Do_Table:
+  Replicate_Wild_Ignore_Table:
+                   Last_Errno: 0
+                   Last_Error:
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 234
+              Relay_Log_Space: 448
+              Until_Condition: None
+               Until_Log_File:
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File:
+           Master_SSL_CA_Path:
+              Master_SSL_Cert:
+            Master_SSL_Cipher:
+               Master_SSL_Key:
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error:
+               Last_SQL_Errno: 0
+               Last_SQL_Error:
+  Replicate_Ignore_Server_Ids:
+             Master_Server_Id: 1
+                  Master_UUID: d4280377-2fe1-11e6-8b17-525400e91531
+             Master_Info_File: /var/lib/mysql/master.info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Slave has read all relay log; waiting for the slave I/O thread to update it
+           Master_Retry_Count: 86400
+                  Master_Bind:
+      Last_IO_Error_Timestamp:
+     Last_SQL_Error_Timestamp:
+               Master_SSL_Crl:
+           Master_SSL_Crlpath:
+           Retrieved_Gtid_Set:
+            Executed_Gtid_Set:
+                Auto_Position: 0
+1 row in set (0.00 sec)
+
+PS：启动主从备份时，一定要确保主从的数据一致，因为从库遇到任何报错，即使执行update语句时，主库中的一条记录在从库中找不到，都会报导致问题2的出现，从而停止执行slave更新
+

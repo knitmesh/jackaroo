@@ -1,0 +1,310 @@
+## MySQL读写分离
+
+``` bash
+场景描述：
+数据库Master主服务器：192.168.10.130
+数据库Slave从服务器：192.168.10.131
+MySQL-Proxy调度服务器：192.168.10.132
+```
+
+>以下操作，均是在192.168.10.132即MySQL-Proxy调度服务器 上进行的。
+
+### 3.1 MySQL的安装与配置
+具体的安装过程与上文相同。
+
+### 3.2 检查系统所需软件包
+
+通过 rpm -qa | grep name 的方式验证以下软件包是否已全部安装。
+
+``` bash
+gcc* gcc-c++* autoconf* automake* zlib* libxml* ncurses-devel* libmcrypt* libtool* flex* pkgconfig*
+libevent* glib*
+```
+若缺少相关的软件包，可通过yum -y install方式在线安装，或直接从系统安装光盘中找到并通过rpm -ivh方式安装。
+
+3.3 编译安装lua
+MySQL-Proxy的读写分离主要是通过rw-splitting.lua脚本实现的，因此需要安装lua。
+
+lua可通过以下方式获得
+从http://www.lua.org/download.html下载源码包
+
+从rpm.pbone.net搜索相关的rpm包
+
+``` bash
+download.fedora.redhat.com/pub/fedora/epel/5/i386/    lua-5.1.4-4.el5.i386.rpm
+download.fedora.redhat.com/pub/fedora/epel/5/x86_64/lua-5.1.4-4.el5.x86_64.rpm
+```
+这里我们建议采用源码包进行安装
+
+``` bash
+cd /opt/install
+wget http://www.lua.org/ftp/lua-5.1.4.tar.gz
+tar zvfx lua-5.1.4.tar.gz
+cd lua-5.1.4
+```
+vi src/Makefile
+在 CFLAGS= -O2 -Wall $(MYCFLAGS) 这一行记录里加上-fPIC，更改为 CFLAGS= -O2 -Wall -fPIC $(MYCFLAGS) 来避免编译过程中出现错误。
+
+```
+make linux
+make install
+```
+```
+cp etc/lua.pc /usr/lib/pkgconfig/
+export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/lib/pkgconfig
+```
+### 3.4 安装配置MySQL-Proxy
+[MySQL-Proxy可通过以下网址获得](http://mysql.cdpa.nsysu.edu.tw/Downloads/MySQL-Proxy/)
+
+推荐采用已经编译好的二进制版本，因为采用源码包进行编译时，最新版的MySQL-Proxy对automake，glib以及libevent的版本都有很高的要求，而这些软件包都是系统的基础套件，不建议强行进行更新。
+并且这些已经编译好的二进制版本在解压后都在统一的目录内，因此建议选择以下版本：
+
+[32位RHEL5平台](http://mysql.cdpa.nsysu.edu.tw/Downloads/MySQL-Proxy/mysql-proxy-0.8.1-linux-rhel5-x86-32bit.tar.gz)
+
+[64位RHEL5平台](http://mysql.cdpa.nsysu.edu.tw/Downloads/MySQL-Proxy/mysql-proxy-0.8.1-linux-rhel5-x86-64bit.tar.gz)
+
+
+测试平台为RHEL5 32位，因此选择32位的软件包
+
+>wget http://mysql.cdpa.nsysu.edu.tw/Downloads/MySQL-Proxy/mysql-proxy-0.8.1-linux-rhel5-x86-32bit.tar.gz
+
+>tar xzvf mysql-proxy-0.8.1-linux-rhel5-x86-32bit.tar.gz
+mv mysql-proxy-0.8.1-linux-rhel5-x86-32bit /opt/mysql-proxy
+
+创建mysql-proxy服务管理脚本
+
+```
+mkdir /opt/mysql-proxy/init.d/
+vim mysql-proxy
+```
+```
+#!/bin/sh
+#
+# mysql-proxy This script starts and stops the mysql-proxy daemon
+#
+# chkconfig: - 78 30
+# processname: mysql-proxy
+# description: mysql-proxy is a proxy daemon to mysql
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+#PROXY_PATH=/usr/local/bin
+PROXY_PATH=/opt/mysql-proxy/bin
+
+prog="mysql-proxy"
+
+
+# Source networking configuration.
+. /etc/sysconfig/network
+
+# Check that networking is up.
+[ ${NETWORKING} = "no" ] && exit 0
+
+# Set default mysql-proxy configuration.
+#PROXY_OPTIONS="--daemon"
+PROXY_OPTIONS="--admin-username=root --admin-password=password --proxy-read-only-backend-addresses=192.168.10.131:3306 --proxy-backend-addresses=192.168.10.130:3306  --admin-lua-script=/opt/mysql-proxy/lib/mysql-proxy/lua/admin.lua --proxy-lua-script=/opt/mysql-proxy/scripts/rw-splitting.lua"
+PROXY_PID=/opt/mysql-proxy/run/mysql-proxy.pid
+
+# Source mysql-proxy configuration.
+if [ -f /etc/sysconfig/mysql-proxy ]; then
+        . /etc/sysconfig/mysql-proxy
+fi
+
+PATH=$PATH:/usr/bin:/usr/local/bin:$PROXY_PATH
+
+# By default it's all good
+RETVAL=0
+
+# See how we were called.
+case "$1" in
+  start)
+        # Start daemon.
+        echo -n $"Starting $prog: "
+        $NICELEVEL $PROXY_PATH/mysql-proxy $PROXY_OPTIONS --daemon --pid-file=$PROXY_PID --user=mysql --log-level=warning --log-file=/opt/mysql-proxy/log/mysql-proxy.log
+        RETVAL=$?
+        echo
+        if [ $RETVAL = 0 ]; then
+                touch /var/lock/subsys/mysql-proxy
+        fi
+       ;;
+  stop)
+        # Stop daemons.
+        echo -n $"Stopping $prog: "
+        killproc $prog
+        RETVAL=$?
+        echo
+        if [ $RETVAL = 0 ]; then
+                rm -f /var/lock/subsys/mysql-proxy
+                rm -f $PROXY_PID
+        fi
+       ;;
+  restart)
+        $0 stop
+        sleep 3
+        $0 start
+       ;;
+  condrestart)
+       [ -e /var/lock/subsys/mysql-proxy ] && $0 restart
+      ;;
+  status)
+        status mysql-proxy
+        RETVAL=$?
+       ;;
+  *)
+        echo "Usage: $0 {start|stop|restart|status|condrestart}"
+        RETVAL=1
+       ;;
+esac
+
+exit $RETVAL
+```
+脚本参数详解：
+==============================================
+
+
+`PROXY_PATH=/opt/mysql-proxy/bin `//定义mysql-proxy服务二进制文件路径
+
+`PROXY_OPTIONS=”–admin-username=root \` //定义内部管理服务器账号
+`–admin-password=password \` //定义内部管理服务器密码
+`–proxy-read-only-backend-addresses=192.168.10.131:3306 \` //定义后端只读从服务器地址
+`–proxy-backend-addresses=192.168.10.130:3306 \ `//定义后端主服务器地址
+`–admin-lua-script=/opt/mysql-proxy/lib/mysql-proxy/lua/admin.lua \ //定义lua管理脚本路径
+`–proxy-lua-script=/opt/mysql-proxy/scripts/rw-splitting.lua” \ `//定义lua读写分离脚本路径
+
+`PROXY_PID=/opt/mysql-proxy/run/mysql-proxy.pid `//定义mysql-proxy PID文件路径
+
+```
+$NICELEVEL $PROXY_PATH/mysql-proxy $PROXY_OPTIONS \
+–daemon \ //定义以守护进程模式启动
+–keepalive \ //使进程在异常关闭后能够自动恢复
+–pid-file=$PROXY_PID \ //定义mysql-proxy PID文件路径
+–user=mysql \ //以mysql用户身份启动服务
+–log-level=warning \ //定义log日志级别，由高到低分别有(error|warning|info|message|debug)
+–log-file=/opt/mysql-proxy/log/mysql-proxy.log //定义log日志文件路径
+```
+==============================================
+
+```
+cp mysql-proxy /opt/mysql-proxy/init.d/
+chmod +x /opt/mysql-proxy/init.d/mysql-proxy
+
+mkdir /opt/mysql-proxy/run
+mkdir /opt/mysql-proxy/log
+
+mkdir /opt/mysql-proxy/scripts
+```
+配置并使用rw-splitting.lua读写分离脚本
+最新的脚本我们可以从最新的mysql-proxy源码包中获取
+cd /opt/install
+
+wget http://mysql.cdpa.nsysu.edu.tw/Downloads/MySQL-Proxy/mysql-proxy-0.8.1.tar.gz
+
+tar xzvf mysql-proxy-0.8.1.tar.gz
+cd mysql-proxy-0.8.1
+cp lib/rw-splitting.lua /opt/mysql-proxy/scripts
+
+修改读写分离脚本rw-splitting.lua
+修改默认连接，进行快速测试，不修改的话要达到连接数为4时才启用读写分离
+vim /opt/mysql-proxy/scripts/rw-splitting.lua
+=============================
+— connection pool
+if not proxy.global.config.rwsplit then
+proxy.global.config.rwsplit = {
+min_idle_connections = 1, //默认为4
+max_idle_connections = 1, //默认为8
+is_debug = false
+}
+end
+=============================
+
+修改完成后，启动mysql-proxy
+/opt/mysql-proxy/init.d/mysql-proxy start
+
+3.5 测试读写分离效果
+创建用于读写分离的数据库连接用户
+登陆主数据库服务器192.168.10.130，通过命令行登录管理MySQL服务器
+/opt/mysql/bin/mysql -uroot -p’new-password’
+mysql> GRANT ALL ON *.* TO ‘proxy1’@’192.168.10.132’ IDENTIFIED BY ‘password’;
+由于我们配置了主从复制功能，因此从数据库服务器192.168.10.131上已经同步了此操作。
+
+为了清晰的看到读写分离的效果，需要暂时关闭MySQL主从复制功能
+登陆从数据库服务器192.168.10.131，通过命令行登录管理MySQL服务器
+/opt/mysql/bin/mysql -uroot -p’new-password’
+
+关闭Slave同步进程
+mysql> stop slave;
+Query OK, 0 rows affected (0.00 sec)
+
+连接MySQL-Proxy
+/opt/mysql/bin/mysql -uproxy1 -p’password’ -P4040 -h192.168.10.132
+
+登陆成功后，在first_db数据的first_tb表中插入两条记录
+mysql> use first_db;
+Database changed
+mysql> insert into first_tb values (007,’first’);
+Query Ok, 1 row affected (0.00 sec)
+mysql> insert into first_tb values (110,’second’);
+Query Ok, 1 row affected (0.00 sec)
+
+查询记录
+mysql> select * from first_tb;
+=============================
++——+——+
+| id | name |
++——+——+
+| 1 | myself |
++——+——+
+1 rows in set (0.00 sec)
+=============================
+通过读操作并没有看到新记录
+
+mysql> quit
+退出MySQL-Proxy
+
+下面，分别登陆到主从数据库服务器，对比记录信息
+首先，检查主数据库服务器
+mysql> select * from first_tb;
+=============================
++——+——+
+| id | name |
++——+——+
+| 1 | myself |
++——+——+
+| 007 | first |
++——+——+
+| 110 | second |
++——+——+
+3 rows in set (0.00 sec)
+=============================
+两条新记录都已经存在
+
+然后，检查从数据库服务器
+mysql> select * from first_tb;
+=============================
++——+——+
+| id | name |
++——+——+
+| 1 | myself |
++——+——+
+1 rows in set (0.00 sec)
+=============================
+没有新记录存在
+
+由此验证，我们已经实现了MySQL读写分离，目前所有的写操作都全部在Master主服务器上，用来避免数据的不同步；
+另外，所有的读操作都分摊给了其它各个Slave从服务器上，用来分担数据库压力。
+
+经验分享：
+1.当MySQL主从复制在 show slave status\G 时出现Slave_IO_Running或Slave_SQL_Running 的值不为YES时，需要首先通过 stop slave 来停止从服务器，然后再执行一次本文 2.1与2.2 章节中的步骤即可恢复，但如果想尽可能的同步更多的数据，可以在Slave上将master_log_pos节点的值在之前同步失效的值的基础上增大一些，然后反复测试，直到同步OK。因为MySQL主从复制的原理其实就是从服务器读取主服务器的binlog，然后根据binlog的记录来更新数据库。
+
+2.MySQL-Proxy的rw-splitting.lua脚本在网上有很多版本，但是最准确无误的版本仍然是源码包中所附带的lib/rw-splitting.lua脚本，如果有lua脚本编程基础的话，可以在这个脚本的基础上再进行优化；
+
+3.MySQL-Proxy实际上非常不稳定，在高并发或有错误连接的情况下，进程很容易自动关闭，因此打开–keepalive参数让进程自动恢复是个比较好的办法，但还是不能从根本上解决问题，因此通常最稳妥的做法是在每个从服务器上安装一个MySQL-Proxy供自身使用，虽然比较低效但却能保证稳定性；
+
+4.一主多从的架构并不是最好的架构，通常比较优的做法是通过程序代码和中间件等方面，来规划，比如设置对表数据的自增id值差异增长等方式来实现两个或多个主服务器，但一定要注意保证好这些主服务器数据的完整性，否则效果会比多个一主多从的架构还要差；
+
+5.MySQL-Cluster 的稳定性也不是太好；
+
+6.Amoeba for MySQL 是一款优秀的中间件软件，同样可以实现读写分离，负载均衡等功能，并且稳定性要大大超过MySQL-Proxy，建议大家用来替代MySQL-Proxy，甚至MySQL-Cluster。
+
+Mysql
