@@ -6,10 +6,10 @@
 
 ## 目录(Contents)
 [TOC]
-# [常用脚本](script)
-## [shell脚本](script/shell)
-### [按时间清除包](script/shell/clear_packages.md)
-### [批量修改网卡](script/shell/set_network.md)
-## [python脚本](script/python)
-### [jinja2 to Dockerfile](script/python/prepare.py)
+# 1. [常用脚本](script)
+## 1.1 [shell脚本](script/shell)
+### 1.1.1 [按时间清除包](script/shell/clear_packages.md)
+### 1.1.2 [批量修改网卡](script/shell/set_network.md)
+## 1.2 [python脚本](script/python)
+### 1.2.1 [jinja2 to Dockerfile](script/python/prepare.py)
 
