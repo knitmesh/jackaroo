@@ -1,0 +1,46 @@
+#!/bin/bash
+
+set -e
+set -u
+
+if [[ "" == "$1" ]];then
+    echo "args error..."
+    exit 1
+fi
+DIR=$1
+public_network=192.168.67.0/24
+mon_addr=192.168.67.116
+
+# install ceph here!!!
+
+# copy ceph.conf to DIR
+
+pkill ceph-osd || true
+
+# cluster wide parameters
+mkdir -p ${DIR}/log
+export CEPH_ARGS="--conf ${DIR}/ceph.conf"
+
+OSD_DATA=${DIR}/osd
+mkdir ${OSD_DATA}
+
+OSD_ID=$(ceph osd create)
+cat >> $DIR/ceph.conf <<EOF
+[osd.${OSD_ID}]
+log_file = ${DIR}/log/osd.log
+chdir = ""
+osd_data = ${OSD_DATA}
+osd_journal = ${OSD_DATA}.journal
+osd_journal_size = 5000
+EOF
+
+ceph osd crush add osd.${OSD_ID} 1 root=default host=localhost
+ceph-osd --id ${OSD_ID} --mkjournal --mkfs
+ceph-osd --id ${OSD_ID}
+
+# check that it works
+ceph osd tree
+
+# display usage instructions
+echo export CEPH_ARGS="'--conf ${DIR}/ceph.conf'"
+echo ceph osd tree

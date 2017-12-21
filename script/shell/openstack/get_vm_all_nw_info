@@ -1,0 +1,345 @@
+#!/usr/bin/env python
+#encoding: utf-8
+
+import os
+import sys
+import time
+import json
+import copy
+import time
+import datetime
+import re
+import commands
+import socket
+import fcntl
+import struct
+import logging
+from pprint import pprint as pp
+import MySQLdb
+
+db_conf = {
+    'neutron': {
+        'user': "neutron",
+        'pwd': "69ba78f1",
+        'host': "192.168.89.61",
+        'db': 'neutron',
+        'port': 3306
+    },
+    'nova': {
+        'user': "nova",
+        'pwd': "69ba78f1",
+        'host': "192.168.89.61",
+        'db': 'nova',
+        'port': 3306
+    }
+}
+
+class CmdExecException(Exception):
+    def __init__(self, cmd, status, output):
+        Exception.__init__(self)
+        self.cmd = cmd
+        self.status = status
+        self.output = output
+
+def cmd_exec(c):
+    LOG.debug("cmd exec: %s" % (c,))
+    status, output = commands.getstatusoutput(c)
+    return (status, output)
+
+class DB(object):
+    def __init__(self, conf):
+        self._conn, self._cursor = self.get_db_conn(conf)
+
+    def __del__(self):
+        if self._conn:
+            self._conn.close()
+
+    def get_db_conn(self, conf):
+        db_conn = MySQLdb.connect(host = conf['host'], 
+                    user = conf['user'],
+                    passwd = conf['pwd'], 
+                    db = conf['db'], 
+                    port = conf['port'])
+        db_cursor = db_conn.cursor()
+        return db_conn, db_cursor
+
+    def query(self, sql):
+        self._cursor.execute(sql)
+        return self._cursor.fetchall()
+
+    def execute(self, sql):
+        return self._cursor.execute(sql)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+        self._conn = None
+
+db = DB(db_conf['neutron'])
+def get_port_info(instance_id):
+    ret = db.query('''
+        select p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+
+            b.host as host, 
+            b.vif_type, 
+            b.vnic_type, 
+            b.segment,
+
+            s.segmentation_id as segment_id,
+            s.network_type,
+            s.physical_network
+        from ports as p
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join ml2_port_bindings as b on p.id = b.port_id 
+            left outer join ml2_network_segments as s on b.segment = s.id 
+        where device_id = '%s'
+    ''' % instance_id)
+    keys = ('id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'host', 'vif_type', 'vnic_type', 'segment', 'segment_id', 'network_type', 'physical_network')
+    return [dict(zip(keys, row)) for row in ret]
+
+def get_port_dhcp_info(port_info):
+    ret = db.query('''
+        select p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+
+            b.host as host,
+            b.vif_type,
+            b.vnic_type, 
+            b.segment as segment,
+
+            s.segmentation_id as segment_id,
+            s.network_type,
+            s.physical_network
+        from ports as p 
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join ml2_port_bindings as b on p.id = b.port_id 
+            left outer join ml2_network_segments as s on b.segment = s.id 
+        where p.device_owner='network:dhcp' and i.subnet_id='%s'
+    ''' % port_info['subnet_id'])
+    keys = ('id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'host', 'vif_type', 'vnic_type', 'segment', 'segment_id', 'network_type', 'physical_network')
+    if ret:
+        return dict(zip(keys, ret[0]))
+    return {}
+
+def get_port_qr_info(port_info):
+    ret = db.query('''
+        select 
+            p.device_id as router_id, 
+            p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+
+            b.host as host,
+            b.vif_type,
+            b.vnic_type, 
+            b.segment as segment,
+
+            s.segmentation_id as segment_id,
+            s.network_type,
+            s.physical_network
+        from ports as p 
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join ml2_dvr_port_bindings as b on (p.id = b.port_id) 
+            left outer join ml2_network_segments as s on b.segment = s.id 
+        where p.device_owner = 'network:router_interface_distributed'
+            and i.subnet_id = '%s'
+            and b.host = '%s'
+    ''' % (port_info['subnet_id'], port_info['host'], ))
+    keys = ('router_id', 'id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'host', 'vif_type', 'vnic_type', 'segment', 'segment_id', 'network_type', 'physical_network')
+    if ret:
+        return dict(zip(keys, ret[0]))
+    return {}
+
+def get_port_sg_info(port_info):
+    ret = db.query('''
+        select 
+            p.device_id as router_id, 
+            p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+
+            b.host as host,
+            b.vif_type,
+            b.vnic_type, 
+            b.segment as segment,
+
+            s.segmentation_id as segment_id,
+            s.network_type,
+            s.physical_network
+        from ports as p 
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join ml2_port_bindings as b on (p.id = b.port_id)
+            left outer join ml2_network_segments as s on b.segment = s.id 
+        where p.device_owner='network:router_centralized_snat' 
+            and i.subnet_id = '%s'
+    ''' % (port_info['subnet_id'], ))
+    keys = ('router_id', 'id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'host', 'vif_type', 'vnic_type', 'segment', 'segment_id', 'network_type', 'physical_network')
+    if ret:
+        return dict(zip(keys, ret[0]))
+    return {}
+
+def get_port_qg_info(port_info):
+    if not port_info['qr']:
+        return {}
+    ret = db.query('''
+        select 
+            p.device_id as router_id, 
+            p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+
+            b.host as host,
+            b.vif_type,
+            b.vnic_type, 
+            b.segment as segment,
+
+            s.segmentation_id as segment_id,
+            s.network_type,
+            s.physical_network
+        from ports as p 
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join ml2_port_bindings as b on (p.id = b.port_id)
+            left outer join ml2_network_segments as s on b.segment = s.id 
+        where p.device_owner='network:router_gateway'
+            and p.device_id = '%s'
+    ''' % (port_info['qr']['router_id'], ))
+    keys = ('router_id', 'id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'host', 'vif_type', 'vnic_type', 'segment', 'segment_id', 'network_type', 'physical_network')
+    if ret:
+        return dict(zip(keys, ret[0]))
+    return {}
+
+def get_port_fg_info(port_info):
+    if not port_info['qg']:
+        return {}
+    ret = db.query('''
+        select 
+            p.device_id as agent_id, 
+            p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+
+            b.host as host,
+            b.vif_type,
+            b.vnic_type, 
+            b.segment as segment,
+
+            s.segmentation_id as segment_id,
+            s.network_type,
+            s.physical_network
+        from ports as p 
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join ml2_port_bindings as b on (p.id = b.port_id)
+            left outer join ml2_network_segments as s on b.segment = s.id 
+        where p.device_owner='network:floatingip_agent_gateway'
+            and p.network_id = '%s'
+            and b.host = '%s'
+    ''' % (port_info['qg']['network_id'], port_info['host'],))
+    keys = ('agent_id', 'id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'host', 'vif_type', 'vnic_type', 'segment', 'segment_id', 'network_type', 'physical_network')
+    if ret:
+        return dict(zip(keys, ret[0]))
+    return {}
+
+def get_port_floating_info(port_info):
+    ret = db.query('''
+        select 
+            p.id as id, 
+            p.status as status, 
+            p.admin_state_up as admin_state, 
+
+            p.mac_address as mac, 
+            i.ip_address as ip, 
+
+            p.network_id as network_id,
+            i.subnet_id as subnet_id,
+            
+            p.device_id as floating_id, 
+            f.status as floating_status,
+            f.router_id
+        from ports as p 
+            left outer join ipallocations as i on p.id = i.port_id 
+            left outer join floatingips as f on f.floating_port_id = p.id
+        where p.device_owner='network:floatingip'
+            and f.fixed_port_id = '%s'
+    ''' % (port_info['id'],))
+    keys = ('id', 'status', 'admin_state', 'mac', 'ip', 
+            'network_id', 'subnet_id', 
+            'floating_id', 'floating_status', 'router_id')
+    if ret:
+        return dict(zip(keys, ret[0]))
+    return {}
+
+try:
+    inst_id = 'ba181bc0-71fc-46fe-88c7-a18fb214fa10'
+    ports = get_port_info(inst_id)
+    for port in ports:
+        port['dhcp'] = get_port_dhcp_info(port)
+        port['qr'] = get_port_qr_info(port)
+        port['sg'] = get_port_sg_info(port)
+        port['qg'] = get_port_qg_info(port)
+        port['fg'] = get_port_fg_info(port)
+        port['floating'] = get_port_floating_info(port)
+
+    pp(ports)
+except Exception as e:
+    print "Exception Happend: %s" % str(e)
+    db.rollback()
+finally:
+    db.close()
+
+

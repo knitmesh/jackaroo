@@ -1,0 +1,192 @@
+#!/bin/bash
+
+set -e
+set -u
+
+cluster='ceph'
+ceph_root_dir='/var/lib/ceph'
+ceph_conf='/etc/ceph/ceph.conf'
+mon_addr=192.168.66.115
+public_network=192.168.66.0/24
+
+pkill ceph-mon || true
+# cluster wide parameters
+mkdir -p ${ceph_root_dir}/log
+cat > $ceph_conf <<EOF
+[global]
+fsid = $(uuidgen)
+public_network = ${public_network}
+# osd_crush_chooseleaf_type = 1
+auth_cluster_required = none
+auth_service_required = none
+auth_client_required = none
+osd_pool_default_size = 2
+
+max_open_files = 1000000
+ms_nocrc = true
+
+osd_pool_default_min_size = 1
+osd_pool_default_pg_num = 512
+osd_pool_default_pgp_num = 512
+osd_journal_size = 20000
+filestore_xattr_use_omap = true
+# osd_crush_chooseleaf_type = 1
+
+
+filestore_fd_cache_shards = 200000
+cephx_sign_messages = false
+cephx_require_signatures = false
+
+ms_dispatch_throttle_bytes = 1048576000
+throttler_perf_counter = false
+
+debug_lockdep = 0/0
+debug_context = 0/0
+debug_crush = 0/0
+debug_buffer = 0/0
+debug_timer = 0/0
+debug_filer = 0/0
+debug_rados = 0/0
+debug_rbd = 0/0
+debug_objectcatcher = 0/0
+debug_client = 0/0
+debug_osd = 0/0
+debug_optracker = 0/0
+debug_objclass = 0/0
+debug_journal = 0/0
+debug_auth = 0/0
+debug_finisher = 0/0
+debug_heartbeatmap = 0/0
+debug_perfcounter = 0/0
+debug_asok = 0/0
+debug_throttle = 0/0
+debug_mon = 0/0
+debug_paxos = 0/0
+debug_rgw = 0/0
+
+debug_objecter = 0/0
+debug_ms = 0/0
+debug_mds_log_expire = 0/0
+debug_journaler = 0/0
+debug_filestore = 0/0
+debug_keyvaluestore = 0/0
+debug_mds_migrator = 0/0
+debug_tp = 0/0
+debug_monc = 0/0
+debug_hadoop = 0/0
+debug_mds_locker = 0/0
+
+debug_none = 0/0
+debug_mds = 0/0
+debug_mds_balancer = 0/0
+debug_mds_log = 0/0
+debug_striper = 0/0
+debug_rbd_replay = 0/0
+debug_objectcacher = 0/0
+debug_crypto = 0/0
+debug_civetweb = 0/0
+debug_javaclient = 0/0
+
+mutex_perf_counter = false
+perf = false
+
+[osd]
+# osd_max_write_size = 200
+# osd_max_backfills = 40
+# osd_max_scrubs = 4
+# # osd_client_op_priority = 63
+# # osd_recovery_op_priority = 10
+# osd_backfill_scan_min = 256
+# osd_backfill_scan_max = 2048
+# osd_backfill_full_ratio = .80
+# osd_map_cache_size = 2000
+# osd_map_cache_bl_size = 200
+# osd_map_cache_bl_inc_size = 400
+# osd_map_message_max = 400
+# osd_recovery_max_active = 60
+# osd_recovery_max_chunk = 33554432
+# osd_recovery_threads = 4
+
+objecter_inflight_op_bytes = 1048576000
+objecter_inflight_ops = 10240
+
+osd_disk_threads = 4
+osd_op_threads = 8
+osd_op_thread_timeout = 60
+osd_op_num_shards = 25
+osd_op_num_threads_per_shard = 2
+osd_objectstore = filestore
+
+osd_mkfs_type = xfs
+osd_mount_options_xfs = rw,noatime,inode64,nobarrier,logbsize=256k,delaylog
+
+osd_mon_heartbeat_interval = 30
+osd_heartbeat_interval = 6
+osd_heartbeat_min_peers = 10
+osd_heartbeat_grace = 20
+
+# osd_client_message_cap = 50000
+# osd_client_message_size_cap = 2097152000
+osd_client_message_size_cap = 0
+osd_client_message_cap = 0
+osd_enable_op_tracker = false
+
+journal_dio = true
+journal_aio = true
+journal_block_align = true
+journal_max_write_bytes = 10485760000
+journal_max_write_entries = 500000
+journal_queue_max_bytes = 10485760000
+journal_queue_max_ops = 500000
+
+filestore_flusher = false
+filestore_fd_cache_size = 204800
+filestore_omap_header_cache_size = 204800
+filestore_op_threads = 8
+filestore_max_sync_interval = 120
+# filestore_min_sync_interval = .01
+filestore_min_sync_interval = 40
+filestore_queue_max_ops = 50000
+filestore_queue_max_bytes = 10485760000
+filestore_queue_committing_max_bytes = 10485760000
+filestore_queue_committing_max_ops = 50000
+filestore_wbthrottle_enable = true
+filestore_wbthrottle_xfs_bytes_start_flusher = 4194304000
+filestore_wbthrottle_xfs_bytes_hard_limit = 41943040000
+filestore_wbthrottle_xfs_ios_start_flusher = 50000
+filestore_wbthrottle_xfs_ios_hard_limit = 500000
+filestore_wbthrottle_xfs_inodes_start_flusher = 50000
+filestore_wbthrottle_xfs_inodes_hard_limit = 500000
+filestore_fiemap = true
+filestore_fiemap_threshold = 4096
+# filestore_journal_writeahead = true
+# filestore_merge_threshold = 10
+# filestore_split_multiple = 2
+
+[client]
+rbd_cache = true
+rbd_cache_writethrough_until_flush = true
+admin_socket = /var/run/ceph/rbd-client-\$pid.asok
+rbd_cache_size = 1838860800
+rbd_cache_max_dirty = 1629145600
+rbd_cache_target_dirty = 1419430400
+rbd_cache_max_dirty_age = 10.0
+EOF
+
+# single monitor
+mon_data="${ceph_root_dir}/mon/${cluster}-0"
+mkdir -p $mon_data
+
+cat >> $ceph_conf <<EOF
+[mon.0]
+mon_data = ${mon_data}
+mon_addr = ${mon_addr}
+EOF
+
+ceph-mon --id 0 --mkfs --keyring /dev/null
+
+touch ${mon_data}/keyring
+touch $mon_data/sysvinit
+service ceph start mon.0
+
+

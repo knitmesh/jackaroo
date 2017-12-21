@@ -1,0 +1,33 @@
+#!/bin/bash
+# 1. 只能部署在1个主控上
+# 2. 如果要在计算上禁止对应的服务，需要执行：
+#    a. 清除所有的云磁盘
+#    b. 清除所有的router
+#    c. 禁用服务
+#       systemctl disable openstack-cinder-volume neutron-l3-agent
+#       systemctl stop openstack-cinder-volume neutron-l3-agent
+#
+
+
+# 这些变量需要根据实际环境手工配置
+KEYSTONE_HOST=10.10.1.40
+CONTROLLER_IP=10.10.1.40
+MANAGE_NETWORK_IP=10.10.1.35
+REGION=region150
+VXLAN_LOCAL_IP=10.10.2.35
+PUBLIC_NETWORK_ETH=eth2
+
+
+openstack-config --set /etc/neutron/metadata_agent.ini DEFAULT auth_url http://${KEYSTONE_HOST}:5000/v2.0
+openstack-config --set /etc/neutron/metadata_agent.ini DEFAULT auth_region ${REGION}
+openstack-config --set /etc/neutron/metadata_agent.ini DEFAULT nova_metadata_ip ${CONTROLLER_IP}
+openstack-config --set /etc/neutron/plugins/ml2/linuxbridge_agent.ini linux_bridge physical_interface_mappings external:${PUBLIC_NETWORK_ETH}
+openstack-config --set /etc/neutron/plugins/ml2/linuxbridge_agent.ini vxlan local_ip ${VXLAN_LOCAL_IP}
+
+openstack-config --set /etc/cinder/cinder.conf DEFAULT my_ip ${MANAGE_NETWORK_IP}
+
+# 启动服务
+systemctl enable openstack-cinder-volume neutron-l3-agent neutron-linuxbridge-agent neutron-metadata-agent
+systemctl start openstack-cinder-volume neutron-l3-agent neutron-linuxbridge-agent neutron-metadata-agent
+
+

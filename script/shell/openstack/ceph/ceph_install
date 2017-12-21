@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# install ceph
+ver='giant'
+cat >/etc/yum.repos.d/ceph.repo <<EOF
+[ceph]
+name=Ceph packages for \$basearch
+baseurl=http://ceph.com/rpm-${ver}/el7/\$basearch
+enabled=1
+priority=2
+gpgcheck=1
+type=rpm-md
+gpgkey=https://ceph.com/git/?p=ceph.git;a=blob_plain;f=keys/release.asc
+
+[ceph-noarch]
+name=Ceph noarch packages
+baseurl=http://ceph.com/rpm-${ver}/el7/noarch
+enabled=1
+priority=2
+gpgcheck=1
+type=rpm-md
+gpgkey=https://ceph.com/git/?p=ceph.git;a=blob_plain;f=keys/release.asc
+
+
+[ceph-source]
+name=Ceph source packages
+baseurl=http://ceph.com/rpm-${ver}/el7/SRPMS
+enabled=0
+priority=2
+gpgcheck=1
+type=rpm-md
+gpgkey=https://ceph.com/git/?p=ceph.git;a=blob_plain;f=keys/release.asc
+EOF
+
+yum clean all
+yum update
+yum -y install snappy leveldb gdisk python-argparse gperftools-libs redhat-lsb ceph-devel ceph python-ceph ceph-deploy

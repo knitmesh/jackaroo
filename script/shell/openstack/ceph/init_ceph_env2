@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# 清楚ceph
+service ceph stop
+mount | grep "/var/lib/ceph/osd/" | awk '{print $3}' | xargs umount
+rm -rf /var/lib/ceph/mon/ceph-0
+rm -f /var/lib/ceph/bootstrap-osd/ceph.keyring
+rm -fr /var/lib/ceph/osd/ceph-* 
+rm -f /etc/ceph/ceph*
+

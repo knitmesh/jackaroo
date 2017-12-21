@@ -1,0 +1,257 @@
+#!/usr/bin/python
+#-*- coding:utf-8 -*-
+
+import os
+import sys
+import time
+import json
+import copy
+import time
+import datetime
+import re
+import commands
+from pprint import pprint as pp
+
+tmp_dir='/var/tmp/openstack_protect'
+
+max_read_line = 10000
+max_read_period = 10 # minute
+
+openstack_log_root_path = '/var/log'
+nova_log_root_path = openstack_log_root_path+'/nova'
+ceilometer_log_root_path = openstack_log_root_path+'/ceilometer'
+
+neutron_log_root_path = openstack_log_root_path+'/neutron'
+
+ft = '%Y-%m-%d %H:%M:%S.%f'
+
+log_mons = [{
+    'process': 'python /usr/bin/ceilometer-agent-notification',
+    'tmp_path': tmp_dir + '/ceilometer-agent-notification.mon',
+    'log_path': ceilometer_log_root_path + '/agent-notification.log',
+    'trigger': 'systemctl restart openstack-ceilometer-notification',
+    'last_log_timespan': 100*60,
+    'last_line_read_failed_max': 10023123,
+    'last_line_read_failed_count': 0,
+    'start': 0,
+    'cycle': 10*60,
+    'rules':[{
+        'reg': r'ERROR oslo.messaging._drivers.impl_rabbit.*AMQP server.*timed out|ERROR oslo.messaging._drivers.impl_rabbit.*AMQP server.*closed the connection',
+        'start_point': 5*60,
+        'match_max': 4, # 匹配次数最多出现
+        'match_min': 0, # 匹配次数至少出现
+        'match_count': 0,
+        'match_text': ''
+    }]
+}]
+
+def _color(string, status=True, bold=True):
+    attr = []
+    if status:
+        # green
+        attr.append('32')
+    else:
+        # red
+        attr.append('31')
+    if bold:
+        attr.append('1')
+    return '\x1b[%sm%s\x1b[0m' % (';'.join(attr), string)
+
+def init_log_seek(tmp_path, file_path):
+    print "init log seek: %s" % (tmp_path,)
+    with open(tmp_path, 'w') as fp:
+        try:
+            seek_end = os.path.getsize(file_path) - 1
+            if not seek_end or seek_end < 0:
+                seek_end = 0
+            json.dump({'seek_pos': seek_end, 'seek_line': 'MON_FIRST_CHECK', 'seek_time': '0000-00-00 00:00:00'}, fp)
+        except Exception, e:
+            print 'init seek value for %s error: %s' % (tmp_path, str(e), )
+
+def get_log_seek(tmp_path):
+    print "get log seek: %s" % (tmp_path,)
+    try:
+        with open(tmp_path, 'r') as fp:
+            return json.load(fp)
+    except Exception, e:
+        print "fget seek value for %s error: %s" % (tmp_path, str(e),)
+        raise e
+
+def put_log_seek(tmp_path, seek_value):
+    print "put log %s seek %s" % (tmp_path, str(seek_value), )
+    try:
+        with open(tmp_path, 'w') as fp:
+            json.dump(seek_value, fp)
+    except Exception, e:
+        print 'fput seek value for %s error: %s' % (tmp_path, str(e), )
+        raise e
+
+def curr_timestamp():
+    return time.time()
+
+def curr_datetime():
+    return to_datetime(curr_timestamp())
+
+def to_datetime(tp):
+    return datetime.datetime.fromtimestamp(tp).strftime(ft)
+
+def to_timestamp(s):
+    ts = time.strptime(s, ft)
+    return time.mktime(ts)
+
+def get_log_time(line):
+    arr = line.split(' ')
+    return arr[0] + ' ' + arr[1]
+
+def datetime_diff_to_now(dp):
+    now = curr_timestamp()
+    tp = to_timestamp(dp)
+    return int(now - tp)
+
+def is_log_line(line):
+    arr = line.split(' ')
+    if (len(arr) > 6):
+        ret = re.match(r'\d\d\d\d-\d\d-\d\d\d\d:\d\d:\d\d\.\d+', arr[0]+arr[1])
+        if ret:
+            return True
+    return False
+
+def cmd_exec(c):
+    print "cmd exec: %s" % (c,)
+    status, output = commands.getstatusoutput(c)
+    return (status, output)
+
+def init_mon(mon):
+    mon['last_line_read_failed_count'] = 0
+    for r in mon['rules']:
+        r['match_count'] = 0
+        r['match_text'] = ''
+
+def process_check(p):
+    cmd = 'ps -ef | grep "'+p+'" | grep -v grep'
+    status, output = cmd_exec(cmd)
+    print "cmd[%s] output: %s" % (cmd, output,)
+    if status:
+        return False
+    return True
+
+def mon_log(mon):
+    trigger = mon['trigger']
+    tmp_path = mon['tmp_path']
+    log_path = mon['log_path']
+    last_log_timespan = mon['last_log_timespan']
+    # rules = copy.deepcopy(mon['rules'])
+    rules = mon['rules']
+
+    with open(log_path) as fp:
+        try:
+            ret = get_log_seek(tmp_path)
+            print "get log seek value: %s" % (str(ret),)
+            fp.seek(ret['seek_pos'])
+        except Exception, e:
+            print "get_log_seek fail: %s, omit this log, re init seek file: %s" % (str(e), tmp_path, )
+            init_log_seek(tmp_path, log_path)
+            return
+
+        last_line = ''
+        matched = []
+        log_time = 0
+        time_diff = 0
+        while True:
+            line = fp.readline()
+            if not line:
+                print "Empty log line..."
+                break
+            if not is_log_line(line):
+                print "Not log line: %s" % (line,)
+                continue
+
+            last_line = line # 记录最后一条日志
+            log_time = get_log_time(line)
+            time_diff = datetime_diff_to_now(log_time)
+            if time_diff < 0:
+                print "log time diff too new[%s]" % (log_time,)
+                continue
+
+            # 匹配所有规则
+            for r in rules:
+                if time_diff > r['start_point']: # 离现时间差超过规则限定，不检查
+                    print _color("Too old", False),"log time diff[%r - %r] for rule: [ %s ] on line[ %s ]" % (time_diff, r['start_point'], r['reg'], line, )
+                    continue
+                if re.search(r['reg'], line):
+                    r['match_count'] += 1
+                    r['match_text'] += "\n"+line
+                    print _color("Matche rule"), "[ %s ] for line: %s" % (str(r), line, )
+
+        if not last_line:
+            mon['last_line_read_failed_count'] += 1
+
+        matched = [ r for r in rules if r['match_count'] > r['match_max'] or r['match_count'] < r['match_min'] ]
+        if matched:
+            print _color("Matched"), ": %s, trigger: %s" % (str(matched), trigger )
+            cmd_exec(trigger)
+            time.sleep(5)
+            init_mon(mon)
+            init_log_seek(tmp_path, log_path)
+            return
+        else:
+            try:
+                # 日志读取失败次数太多
+                '''
+                if mon['last_line_read_failed_count'] > mon['last_line_read_failed_max']:
+                    print "last_line_read_failed_count[%r] > last_line_read_failed_max[%r]" % (mon['last_line_read_failed_count'], mon['last_line_read_failed_max'], )
+                    raise Exception("last_line_read_failed_count > last_line_read_failed_count")
+                '''
+
+                if not last_line:
+                    return
+
+                # 最后一条日志出现的时间太久远
+                last_log_time = get_log_time(last_line)
+                last_log_time_diff = datetime_diff_to_now(last_log_time)
+                if last_log_time_diff > last_log_timespan: 
+                    print "last log time[%s] too old" % (last_log_time, )
+                    raise Exception("last log time too old")
+
+                # 记录最后一条日志出现的位置，以便下一次feek
+                if last_line:
+                    v = {'seek_pos': fp.tell()-1, 'seek_line': last_line, 'seek_time': log_time}
+                    put_log_seek(tmp_path, v)
+            except Exception, e:
+                print "Exception %s, re init seek file: %s" % (str(e), tmp_path, )
+                cmd_exec(trigger)
+                time.sleep(5)
+                init_mon(mon)
+                init_log_seek(tmp_path, log_path)
+                return
+
+if __name__ == "__main__":
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir)
+
+    while True:
+        print _color('Protect'), "Start log mon[%s]..." % (curr_datetime(),)
+
+        for mon in log_mons:
+            if (not process_check(mon['process'])):
+                print "process: %s not exist" % (mon['process'],)
+                cmd_exec(mon['trigger'])
+                time.sleep(5)
+                init_mon(mon)
+                init_log_seek(mon['tmp_path'], mon['log_path'])
+                continue
+
+            now = time.time()
+            mon_diff = now - mon['start']
+            if (mon_diff > mon['cycle']):
+                print "re-init mon log path: %s" % (mon['log_path'],)
+                mon['start'] = now
+                init_mon(mon)
+                init_log_seek(mon['tmp_path'], mon['log_path'])
+
+            mon_log(mon)
+
+        print _color('Protect'), "End log mon...\n\n\n"
+        time.sleep(3)
+
+

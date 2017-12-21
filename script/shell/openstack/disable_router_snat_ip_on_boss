@@ -1,0 +1,19 @@
+#!/bin/bash
+ips=`mysql neutron -uroot -paaaaaa -e "
+select ip.ip_address
+from ports as p
+    left outer join ipallocations as ip on (p.id=ip.port_id)
+where p.device_owner = 'network:floatingip_agent_gateway' or p.device_owner = 'network:router_gateway'
+ORDER BY ip.ip_address
+" | grep -vP '\+|ip_address'`
+
+router_ip="'"
+for ip in $ips;do 
+    router_ip=${router_ip}"', '"${ip}
+done
+router_ip=${router_ip}"'"
+
+echo $router_ip
+mysql ttcloud -uroot -paaaaaa -e "update hc_ip_detail set status=0 where remark='neutron_sync'"
+mysql ttcloud -uroot -paaaaaa -e "update hc_ip_detail set status=3, remark='neutron_sync' where INET_NTOA(ip) in (${router_ip})"
+

@@ -1,0 +1,21 @@
+#!/bin/bash
+journal_disk=sdb
+data_disks=(sdc sdd sde)
+data_num=${#data_disks[@]}
+for ((i=0;i<$data_num;i++))
+do
+    disk=${data_disks[i]}
+    osd_id=`mount | grep "/dev/${disk}" | awk '{print $3}' | awk -F '-' '{print $2}'`
+    if [[ "" == "$disk" || "" == "$osd_id" ]];then
+        continue
+    fi
+
+    ceph osd crush remove osd.${osd_id}
+    ceph auth del osd.${osd_id}
+    service ceph stop osd.${osd_id}
+    ceph osd rm ${osd_id}
+    umount /var/lib/ceph/osd/ceph-${osd_id}/
+    rm /var/lib/ceph/osd/ceph-${osd_id} -fr
+    sgdisk -o /dev/$disk
+done
+

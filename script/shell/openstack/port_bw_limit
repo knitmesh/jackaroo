@@ -1,0 +1,96 @@
+#!/bin/bash
+
+#################################################
+# 说明：用于对某vm的端口进行限速，需要获取vm端口的连接属性
+# 定义待限速端口的相关信息
+inner_subnet='10.0.199.0/24'    # 内网网段
+in_port='tap1b56cac5-d7'        # 交换机下行端口
+out_port='qvb1b56cac5-d7'       # 交换机上行端口
+
+out_all_bw=100  # 上行内部带宽
+out_wan_bw=10   # 上行外部带宽
+
+in_all_bw=100   # 下行内部带宽
+in_wan_bw=10    # 下行外部带宽
+
+##################################################
+
+
+# 计算内部带宽
+(( out_lan_bw=out_all_bw-out_wan_bw ))
+(( in_lan_bw=in_all_bw-in_wan_bw ))
+
+# 定义firewall标志
+fw_tag=1000
+
+iptables -t mangle -N CLOUD_OUT_BWT_MARK
+iptables -t mangle -I PREROUTING -j CLOUD_OUT_BWT_MARK
+
+### out bw limit
+wan_fw_tag=$fw_tag
+(( lan_fw_tag=fw_tag+1000 ))
+
+iptables -t mangle -A CLOUD_OUT_BWT_MARK -m physdev --physdev-in ${in_port} ! -d ${inner_subnet} -j MARK --set-mark ${wan_fw_tag}
+iptables -t mangle -A CLOUD_OUT_BWT_MARK -m physdev --physdev-in ${in_port} ! -d ${inner_subnet} -j RETURN
+iptables -t mangle -A CLOUD_OUT_BWT_MARK -m physdev --physdev-in ${in_port} -j MARK --set-mark ${lan_fw_tag}
+
+# root定义
+tc qdisc add dev $out_port root handle 1: htb default 1
+tc class add dev $out_port parent 1: classid 1:1 htb rate ${out_all_bw}mbit ceil ${out_all_bw}mbit
+
+# 公网速度
+wan_class_id=${wan_fw_tag}
+tc class add dev $out_port parent 1:1 classid 1:${wan_class_id} htb rate ${out_wan_bw}mbit ceil ${out_wan_bw}mbit
+tc qdisc add dev $out_port parent 1:${wan_class_id} handle ${wan_class_id}: sfq perturb 10
+
+# 内网速度
+lan_class_id=${lan_fw_tag}
+tc class add dev $out_port parent 1:1 classid 1:${lan_class_id} htb rate ${out_lan_bw}mbit ceil ${out_all_bw}mbit
+tc qdisc add dev $out_port parent 1:${lan_class_id} handle ${lan_class_id}: sfq perturb 10
+
+# filter导向
+tc filter add dev $out_port parent 1: protocol ip prio 1 handle ${wan_fw_tag} fw classid 1:${wan_class_id}
+tc filter add dev $out_port parent 1: protocol ip prio 1 handle ${lan_fw_tag} fw classid 1:${lan_class_id}
+
+### in bw limit
+wan_fw_tag=$fw_tag
+(( lan_fw_tag=fw_tag+1000 ))
+iptables -t mangle -A CLOUD_OUT_BWT_MARK -m physdev --physdev-in ${out_port} ! -s ${inner_subnet} -j MARK --set-mark ${wan_fw_tag}
+iptables -t mangle -A CLOUD_OUT_BWT_MARK -m physdev --physdev-in ${out_port} ! -s ${inner_subnet} -j RETURN
+iptables -t mangle -A CLOUD_OUT_BWT_MARK -m physdev --physdev-in ${out_port} -j MARK --set-mark ${lan_fw_tag}
+
+
+# root定义
+tc qdisc add dev $in_port root handle 1: htb default 1
+tc class add dev $in_port parent 1: classid 1:1 htb rate ${in_all_bw}mbit ceil ${in_all_bw}mbit
+
+# 公网速度
+wan_class_id=${wan_fw_tag}
+tc class add dev $in_port parent 1:1 classid 1:${wan_class_id} htb rate ${in_wan_bw}mbit ceil ${in_wan_bw}mbit
+tc qdisc add dev $in_port parent 1:${wan_class_id} handle ${wan_class_id}: sfq perturb 10
+
+# 内网速度
+lan_class_id="${lan_fw_tag}"
+tc class add dev $in_port parent 1:1 classid 1:${lan_class_id} htb rate ${in_lan_bw}mbit ceil ${in_all_bw}mbit
+tc qdisc add dev $in_port parent 1:${lan_class_id} handle ${lan_class_id}: sfq perturb 10
+
+# filter导向
+tc filter add dev $in_port parent 1: protocol ip prio 1 handle ${wan_fw_tag} fw classid 1:${wan_class_id}
+tc filter add dev $in_port parent 1: protocol ip prio 1 handle ${lan_fw_tag} fw classid 1:${lan_class_id}
+
+echo "All rules are added, enjoy it!!!"
+sleep 3
+
+### 清楚所有规则
+cat >clear_rules <<EOF
+#!/bin/bash
+tc qdisc del dev $in_port root
+tc qdisc del dev $out_port root
+iptables -t mangle -D PREROUTING -j CLOUD_OUT_BWT_MARK
+iptables -t mangle -F CLOUD_OUT_BWT_MARK
+iptables -t mangle -X CLOUD_OUT_BWT_MARK
+EOF
+chmod 755 clear_rules
+echo "You can use ./clear_rules to clear all rules!!!"
+
+

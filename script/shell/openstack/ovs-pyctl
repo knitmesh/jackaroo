@@ -1,0 +1,17 @@
+#!/usr/bin/python
+
+import commands
+import json
+from pprint import pprint as pp
+
+def cmd_exec(c):
+    print "cmd exec: %s" % (c,)
+    status, output = commands.getstatusoutput(c)
+    return (status, output)
+
+get_ports='ovs-vsctl --timeout=2 --format=json -- --columns=_uuid,name,ofport,ifindex,mac_in_use,type,link_state,admin_state list Interface | grep -v  _uuid'
+if __name__ == "__main__":
+    (status, output) = cmd_exec(get_ports)
+
+    print output.strip()
+

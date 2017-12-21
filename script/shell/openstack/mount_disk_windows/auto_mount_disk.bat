@@ -1,0 +1,2 @@
+@ECHO OFF
+PowerShell.exe -NoLogo -WindowStyle Hidden -NoProfile -Command "& {Start-Process PowerShell.exe -ArgumentList '-NoLogo -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File ""%~dpn0.ps1""' -Verb RunAs}"

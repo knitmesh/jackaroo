@@ -1,0 +1,30 @@
+#!/bin/sh
+
+if [ $# -ne 3 ]
+then
+        echo "Usage: $0 <server_list_file> <local_file_path> <remote_file>"
+        exit
+fi
+
+server_list_file=$1
+local_file=$2
+remote_file=$3
+node_list=`cat $server_list_file | grep -v '#' | grep -v grep`
+echo 'local file is : '$local_file
+echo 'remote file is : '$remote_file
+
+for node in $node_list; do
+	continue
+	echo 'ensure ssh tunel' > test_ssh_tunel
+	scp test_ssh_tunel $node:/tmp/test_ssh_tunel
+done
+
+for node in $node_list; do
+	echo "scp $local_file $node:$remote_file"
+	scp $local_file $node:$remote_file
+	if [ $? -ne 0 ]
+	then
+		echo "$node scp file fail[$?]"
+		continue
+	fi
+done

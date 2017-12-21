@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Authors:      wanghongxu <harald@redhat.com>
+#
+
+. /etc/rc.d/init.d/functions
+
+# See how we were called.
+case "$1" in
+  start|reload)
+	# copy the rules generated before / was mounted read-write
+	for file in /dev/.udev/tmp-ifcfg--*; do
+		dest=${file##*tmp-ifcfg--}
+		# check, if anything is todo
+		[ "$dest" = '*' ] && exit 0
+		cat $file >> /etc/sysconfig/network-scripts/$dest
+		rm -f $file
+	done
+	exit 0
+	;;
+  stop)
+	exit 0
+	;;
+  status)
+	exit 0
+	;;
+  *)
+        echo $"Usage: $0 {start}"
+        exit 2
+esac
+exit 0

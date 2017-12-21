@@ -1,0 +1,130 @@
+#!/bin/bash
+# flock -xn /dev/shm/test.lock -c ""
+echo 1 >/proc/sys/net/ipv4/ip_forward
+
+public_ip="192.168.89.115"
+local_ip="192.168.89.115"
+port_start=10000
+port_end=60000
+
+check(){
+    if [[ $1 -ne 0 ]]; then
+        echo "fail"
+    else
+        echo "ok"
+    fi
+}
+
+allocate_port(){
+    iptables-save | grep VNC_PROXY_DNAT_ | grep 'to-destination' | awk -F 'dport' '{print $2}' | awk '{print $1}' | awk -v start="$port_start" -v end="$port_end" 'BEGIN{
+        start = start+0;
+        end = end+0;
+    }{
+        key = $1+0;
+        tarr[key] = key;
+    } END {
+        for(i=start; i<=end; i++)
+        {
+            if( i in tarr ){
+                continue;
+            }else{
+                print i
+                break;
+            }
+        }
+    }'
+    echo $ret
+}
+
+add_rule(){
+    id=$1
+    client_ip=$2
+    vnc_ip=$3
+    vnc_port=$4
+    if [[ "" == "$id" || "" == "$client_ip" || "" == "$vnc_ip" || "" == "$vnc_port" ]];then
+        echo "-1"
+        return
+    fi
+    port=`allocate_port`
+    if [[ "" == "$port" ]];then
+        echo "-2"
+        return
+    fi
+
+    # 先清空规则
+    clear_rule $id
+
+    # 添加规则
+    DNAT_CHAIN="VNC_PROXY_DNAT_${id}"
+    SNAT_CHAIN="VNC_PROXY_SNAT_${id}"
+    FILTER_CHAIN="VNC_PROXY_FILTER_${id}"
+    iptables -t nat -N $DNAT_CHAIN
+    iptables -t nat -N $SNAT_CHAIN
+    iptables -t filter -N $FILTER_CHAIN
+    iptables -t nat -I PREROUTING -j $DNAT_CHAIN
+    iptables -t nat -I POSTROUTING -j $SNAT_CHAIN
+    iptables -t filter -I FORWARD -j $FILTER_CHAIN 
+
+    iptables -t nat -I $DNAT_CHAIN -p tcp -d $public_ip --dport $port -j DNAT --to-destination $vnc_ip:$vnc_port
+    iptables -t nat -I $SNAT_CHAIN -p tcp -d $vnc_ip --dport $vnc_port -j SNAT --to-source $local_ip
+    iptables -t filter -I $FILTER_CHAIN -p tcp -d $vnc_ip --dport $vnc_port -j ACCEPT
+    echo "$port"
+    return
+}
+
+deny_rule(){
+    id=$1
+    if [ "" == "$id" ];then
+        echo "-1"
+        return
+    fi
+    DNAT_CHAIN="VNC_PROXY_DNAT_${id}"
+    SNAT_CHAIN="VNC_PROXY_SNAT_${id}"
+    FILTER_CHAIN="VNC_PROXY_FILTER_${id}"
+
+    RETVAL=`iptables -t filter -I $FILTER_CHAIN -p tcp -j REJECT`
+    RETVAL=`check $RETVAL`
+    if [ "ok" != $RETVAL ];then
+        echo "-3"
+    fi
+    echo "0"
+}
+
+clear_rule(){
+    id=$1
+    if [ "" == "$id" ];then
+        echo "-1"
+        return
+    fi
+    DNAT_CHAIN="VNC_PROXY_DNAT_${id}"
+    SNAT_CHAIN="VNC_PROXY_SNAT_${id}"
+    FILTER_CHAIN="VNC_PROXY_FILTER_${id}"
+
+    iptables -t nat -D PREROUTING -j $DNAT_CHAIN >/dev/null 2>&1
+    iptables -t nat -F $DNAT_CHAIN >/dev/null 2>&1
+    iptables -t nat -X $DNAT_CHAIN >/dev/null 2>&1
+
+    iptables -t nat -D POSTROUTING -j $SNAT_CHAIN >/dev/null 2>&1
+    iptables -t nat -F $SNAT_CHAIN >/dev/null 2>&1
+    iptables -t nat -X $SNAT_CHAIN >/dev/null 2>&1
+
+    iptables -t filter -D FORWARD -j $FILTER_CHAIN >/dev/null 2>&1
+    iptables -t filter -F $FILTER_CHAIN >/dev/null 2>&1
+    iptables -t filter -X $FILTER_CHAIN >/dev/null 2>&1
+}
+
+usage(){
+    echo $"Usage: $1 {install|clean|reinstall|show|cleanold}"
+}
+
+case "$1" in
+    add_rule)
+        add_rule "$2" "$3" "$4" "$5"
+        ;;  
+    *)  
+        usage $0
+        exit 1
+esac
+
+exit 0
+

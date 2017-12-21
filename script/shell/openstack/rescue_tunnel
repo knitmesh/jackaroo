@@ -1,0 +1,19 @@
+#!/bin/bash
+# Usage: Add below to crontab
+# */20 * * * * su - root -c '/usr/local/bin/rescue_tunnel <external_server_ip> >/dev/null&'
+# Step:
+# 1. create local /root/.ssh/id_rsa.pub (generate by ssh-keygen)
+# 2. append id_rsa.pub to /root/.ssh/authorized_keys on external_server_ip
+# 3. ssh external_server_ip firstly
+# 4. runnint this script in crontab
+#
+
+tip=$1
+port=`expr ${RANDOM:0:3} + 17000`
+echo "---> $tip:$port"
+pids=`ps -ef | grep $tip | grep -vP 'rescue_tunnel|grep' | awk '{print $2}'`
+for pid in $pids;do
+    kill -9 $pid
+done
+ssh -fNR ${port}:localhost:22 ${tip}
+

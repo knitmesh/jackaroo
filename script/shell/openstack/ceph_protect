@@ -1,0 +1,178 @@
+#!/usr/bin/python
+#-*- coding:utf-8 -*-
+
+'''
+mount_map = {
+    'sdb1': '0'
+}
+'''
+
+
+'''
+if not "/etc/xcloud/" in sys.path:
+    sys.path.append("/etc/xcloud/")
+
+if not 'ceph_protect' in sys.modules:
+    b = __import__('ceph_protect')
+else:
+    eval('import ceph_protect')
+    conf = eval('reload(ceph_protect)')
+'''
+
+mount_map = {
+}
+
+import os
+import sys
+import time
+import json
+import copy
+import time
+import datetime
+import re
+import commands
+import socket
+import fcntl
+import struct
+import logging
+from pprint import pprint as pp
+
+# init log
+log_dir = '/var/log/monitor/'
+log_path = log_dir + 'ceph_protect.log'
+try:
+    os.mkdir(log_dir)
+except Exception, e:
+    pass
+
+LOG = logging.getLogger('ceph_protect')
+LOG.setLevel(logging.DEBUG)
+
+from logging.handlers import RotatingFileHandler
+fh = RotatingFileHandler(log_path, maxBytes=10*1024*1024, backupCount=7)
+fh.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+
+LOG.addHandler(fh)
+LOG.addHandler(ch)
+
+hostname = socket.gethostname()
+
+def alert(content):
+    import smtplib  
+    from email.mime.text import MIMEText  
+    sub = 'ceph protect alert'
+    to_list=["phicomm_cloud@qq.com"] 
+    mail_host="smtp.qq.com"
+    mail_user="phicomm_cloud"
+    mail_pass="aaaAAA111"
+    mail_postfix="qq.com"
+
+    me="superman"+"<"+mail_user+"@"+mail_postfix+">"
+    msg = MIMEText(content, _subtype='html', _charset='utf-8')
+    msg['Subject'] = sub
+    msg['From'] = me
+    msg['To'] = ";".join(to_list)
+    try:
+        s = smtplib.SMTP()
+        s.connect(mail_host)
+        s.login(mail_user, mail_pass)
+        s.sendmail(me, to_list, msg.as_string())
+        s.close()
+        return True
+    except Exception, e:
+        LOG.warn("alert fail: %s" % str(e))
+        return False
+
+class CmdExecException(Exception):
+    def __init__(self, cmd, status, output):
+        Exception.__init__(self)
+        self.cmd = cmd
+        self.status = status
+        self.output = output
+
+def cmd_exec(c):
+    LOG.debug("cmd exec: %s" % (c,))
+    status, output = commands.getstatusoutput(c)
+    return (status, output)
+
+def get_host_osds(host):
+    ret = []
+    cmd = '''ceph osd tree | grep -v -P "root|reweight"'''
+    status, output = cmd_exec(cmd)
+    if status:
+        raise CmdExecException(cmd, status, output)
+
+    host1 = hostname
+    host2 = '.'.join(hostname.split('.')[:-1]) # if hostname = abc.com, it will get abc
+    lines = output.split('\n')
+    start = False
+    for line in lines:
+        if start and 'host' in line:
+            start = False
+        if host1 in line or (host2 and host2 in line):
+            start = True
+            continue
+        if start:
+            arr = line.split('\t')
+            osd_id = arr[4].split('.')[1]
+            status = arr[5]
+            ret.append({'id': osd_id, 'status': status})
+    return ret
+
+def restart_osd(osd_id):
+    if not osd_id:
+        return
+    cmd = '''service ceph restart osd.%s''' % osd_id
+    status, output = cmd_exec(cmd)
+    # alert("Exec: " + cmd + "<br/>" + "Return: " + str(status) + "<br/><br/>" + output)
+    if status:
+        raise CmdExecException(cmd, status, output)
+
+
+def remount_osd(disk, osd_id):
+    if not disk or not osd_id:
+        return
+
+    cmd_exec('''mkdir -p /var/lib/ceph/osd/ceph-%s''' % osd_id)
+    cmd_exec('''umount /var/lib/ceph/osd/ceph-%s''' % osd_id)
+    time.sleep(3)
+    mount_opt = 'rw,noatime,inode64,logbsize=256k,delaylog'
+    cmd = '''mount -t xfs -o %s /dev/%s /var/lib/ceph/osd/ceph-%s''' % (mount_opt, disk, osd_id,)
+    status, output = cmd_exec(cmd)
+    if status:
+        raise CmdExecException(cmd, status, output)
+
+def check_mount_point(osd_id):
+    cmd = '''mount'''
+    status, output = cmd_exec(cmd)
+    if status:
+        raise CmdExecException(cmd, status, output)
+    mount_path = '''/var/lib/ceph/osd/ceph-%s''' % osd_id
+    if mount_path in output:
+        return True
+    return False
+
+if __name__ == "__main__":
+    try:
+        osds = get_host_osds(hostname)
+    except Exception, e:
+        LOG.error('LOG Err, get osds fail: %s' % str(e))
+        sys.exit(-1)
+
+    osd_map = {v: k for k, v in mount_map.items()}
+    for osd in osds:
+        if 'up' != osd['status']:
+            try:
+                if not check_mount_point(osd['id']):
+                    remount_osd(osd_map.get(str(osd['id']), None), osd['id'])
+                    restart_osd(osd['id'])
+                else:
+                    restart_osd(osd['id'])
+            except Exception, e:
+                LOG.error('LOG Err, restart osd fail: %s' % str(e))
+

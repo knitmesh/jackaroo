@@ -1,0 +1,11 @@
+#!/bin/bash
+
+taps=`brctl show | grep tap`
+qvbs=`brctl show | grep qvb | awk '{print $4}'`
+qbrs=`brctl show | grep qbr | awk '{print $1}'`
+
+for p in $taps $qvbs $qbrs;do
+    echo "ip link set $p up"
+    ip link set $p up
+done
+

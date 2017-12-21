@@ -1,0 +1,13 @@
+#!/bin/bash
+for cache_uuid in `find /sys/fs/bcache/ -name '*-*-*-*-*'`
+do
+    echo "close cache dev ${cache_uuid}"
+    echo 1 >${cache_uuid}/unregister
+done
+
+for dev in `find /sys/block/ -name 'bcache*'`
+do
+    echo "stop backing dev ${dev}"
+    echo 1 >${dev}/bcache/stop
+done
+

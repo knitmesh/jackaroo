@@ -1,0 +1,70 @@
+#!/bin/bash
+set -e
+set -u
+
+data_disks=$1
+journal_disks=$2
+
+if [[ "" == "$1" || "" == "$2" ]];then
+    echo "args error..."
+    exit 1
+fi
+
+for dev in ${data_disks} ${journal_disks}
+do
+    if [ ! -e "/dev/${dev}" ];then
+        echo "Err: ${dev} not exist"
+        exit 1
+    fi
+done
+
+data_disks=(${data_disks// / })
+journal_disks=(${journal_disks// / })
+data_disk_num=${#data_disks[*]}
+journal_disk_num=${#journal_disks[*]}
+
+if [ "$data_disk_num" -ne "$journal_disk_num" ];then
+    echo "data disk number not equal to journal disk number..."
+    exit 1
+fi
+
+cluster='ceph'
+ceph_root_dir='/var/lib/ceph'
+ceph_conf='/etc/ceph/ceph.conf'
+
+### 创建各个osd
+host=`hostname`
+for ((i=0;i<$data_disk_num;i++));do
+    data_disk=${data_disks[$i]}
+    osd_id=$(ceph osd create)
+
+    osd_data="${ceph_root_dir}/osd/${cluster}-${osd_id}"
+    mkdir -p $osd_data
+    mkfs -t xfs -f -i size=2048 /dev/$data_disk
+    echo "osd${osd_id} use /dev/$data_disk, mounted on $osd_data"
+    mount -t xfs -o rw,noatime,inode64,logbsize=256k,delaylog /dev/$data_disk $osd_data
+
+    # prepare for journal
+    journal_real_path=/dev/${journal_disks[$i]}
+    journal_path=${osd_data}/journal
+    ln -s $journal_real_path $journal_path
+
+    cat >> $ceph_conf <<EOF
+[osd.${osd_id}]
+osd_data = ${osd_data}
+osd_journal = ${journal_path}
+# osd_journal_size = 1000
+EOF
+    ceph osd crush add osd.${osd_id} 1 root=default host=${host}
+    ceph-osd --id ${osd_id} --mkfs --osd-journal $journal_path
+    touch $osd_data/sysvinit
+    service ceph start osd.${osd_id}
+    i=$(( $i+1 ))
+done
+
+# check that it works
+# rados --pool data put group /etc/group
+# rados --pool data get group ${ceph_root_dir}/group
+# diff /etc/group ${ceph_root_dir}/group
+# ceph osd tree
+

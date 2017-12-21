@@ -1,0 +1,102 @@
+#!/bin/bash
+TEMP=`getopt -o d:c --long dir:,only-compile \
+     -n 'notify' -- "$@"`
+if [ $? != 0 ] ; then 
+    echo "Args Error, Terminating..." >&2 
+    exit 1
+fi
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -d|--dir) dst_root=$2 ; shift 2 ;;
+        -c|--only-compile) only_compile='true' ; shift ;;
+        --) shift ; break ;;
+        *) echo "Args Internal error!" ; exit 1 ;;
+    esac
+done
+
+if [ 'true' != "${only_compile}" -a "" == "${dst_root}" ];then
+    echo "backup directory MUST Not empty!"
+    exit 1
+fi
+
+mkdir -p ${dst_root}
+projects="nova 
+novaclient 
+cinder 
+cinderclient 
+neutron 
+neutronclient 
+keystone 
+keystoneclient 
+glance 
+glanceclient 
+glance_store
+heat 
+heatclient 
+ceilometer 
+ceilometerclient
+openstack_auth
+openstackclient
+horizon
+/usr/share/openstack-dashboard
+fault_migration
+oslo_db
+oslo_messaging
+cloud_log
+cloudlogclient
+ironic
+ironicclient
+"
+
+white_list='/usr/lib/python2.7/site-packages/ceilometer/api/config.py
+/usr/lib/python2.7/site-packages/ironic/api/config.py'
+
+for p in $projects; do
+    if [ "${p#/}" == "${p}" ];then
+        src_dir="/usr/lib/python2.7/site-packages/${p}"
+    else
+        src_dir=${p}
+    fi
+    python -m compileall -f "${src_dir}"
+    if [ 'true' == "${only_compile}" ];then
+        continue
+    fi
+    pycs=`find ${src_dir} -name '*.pyc'`
+    for pyc in $pycs;do 
+        dir=`dirname $pyc`
+        dst_dir=${dst_root}/${dir}
+        mkdir -p $dst_dir
+        file_name=`basename $pyc`
+
+        py=${dir}"/"${file_name%%.*}.py
+
+        white_found='false'
+        for w in $white_list;do
+            if [ -d "$w" -a "$dir" == "$w" ];then
+                white_found='true'
+                break
+            fi
+            if [ -f "$w" -a "$py" == "$w" ];then
+                white_found='true'
+                break
+            fi
+        done
+
+        if [ "true" == "$white_found" ];then
+            echo "omit file ${py}"
+            continue
+        fi
+
+        echo $py
+        if [ -f "$py" -a ! -L "$py" ];then
+            mv $py $dst_dir
+        fi
+        pyo=${dir}"/"${file_name%%.*}.pyo
+        if [ -f "$pyo" -a ! -L "$pyo" ];then
+            mv $pyo $dst_dir
+        fi
+    done
+done
+

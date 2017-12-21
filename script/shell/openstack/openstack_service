@@ -1,0 +1,132 @@
+#!/bin/sh
+
+. /etc/rc.d/init.d/functions
+
+# computer=(libvirtd openstack-cinder-volume openvswitch neutron-openvswitch-agent neutron-l3-agent neutron-metadata-agent openstack-ceilometer-central openstack-nova-compute)
+computer=(libvirtd openstack-cinder-volume neutron-openvswitch-agent neutron-linuxbridge-agent neutron-metadata-agent openstack-ceilometer-central openstack-nova-compute)
+networker=(neutron-openvswitch-agent neutron-linuxbridge-agent neutron-l3-agent neutron-dhcp-agent neutron-metadata-agent)
+base=(nothing error)
+controller=(openstack-keystone openstack-glance-api openstack-glance-registry openstack-nova-api openstack-nova-scheduler openstack-nova-conductor neutron-server openstack-cinder-api openstack-cinder-scheduler openstack-heat-api-cfn openstack-heat-api openstack-heat-engine openstack-nova-cert openstack-nova-consoleauth openstack-nova-novncproxy openstack-ceilometer-api openstack-ceilometer-notification openstack-ceilometer-central openstack-ceilometer-collector openstack-ceilometer-alarm-evaluator openstack-ceilometer-alarm-notifier)
+all=("${base[@]}" "${controller[@]}" "${networker[@]}" "${computer[@]}")
+
+start_group() {
+    eval svr='(${'$1'[*]})'
+    n=${#svr[*]}
+    for ((i=0; i<n; i++)); do
+        systemctl is-enabled ${svr[$i]} >/dev/null 2>&1
+        ret=$?
+        if [ "0" == "$ret" ];then
+            echo "start serveice ${svr[$i]}"
+            systemctl --no-block start ${svr[$i]}
+            sleep 5
+        fi
+    done
+}
+
+stop_group() {
+    eval svr='(${'$1'[*]})'
+    n=${#svr[*]}
+    for ((i=n-1; i>=0; i--)); do
+        systemctl is-enabled ${svr[$i]} >/dev/null 2>&1
+        ret=$?
+        if [ "0" == "$ret" ];then
+            echo "stop serveice ${svr[$i]}"
+            systemctl --no-block stop ${svr[$i]}
+            sleep 5
+            ids=`ps -ef | grep ${svr[$i]} | grep -v grep | awk '{print $2}'`
+            if [ "" != "$ids" ];then
+                systemctl --no-block stop ${svr[$i]}
+                sleep 3
+                systemctl --no-block stop ${svr[$i]}
+                sleep 3
+                systemctl --no-block stop ${svr[$i]}
+                sleep 3
+                systemctl --no-block stop ${svr[$i]}
+                sleep 3
+                ids=`ps -ef | grep ${svr[$i]} | grep -v grep | awk '{print $2}'`
+            fi
+
+            for id in $ids;do
+                kill -9 $id
+            done
+        fi
+    done
+}
+
+enable_group() {
+    eval svr='(${'$1'[*]})'
+    n=${#svr[*]}
+    for ((i=0; i<n; i++)); do
+        echo "enable serveice ${svr[$i]}"
+        systemctl enable  ${svr[$i]}
+    done
+}
+
+disable_group() {
+    eval svr='(${'$1'[*]})'
+    n=${#svr[*]}
+    for ((i=0; i<n; i++)); do
+        echo "disable serveice ${svr[$i]}"
+        systemctl disable  ${svr[$i]}
+    done
+}
+
+status_group() {
+    eval svr='(${'$1'[*]})'
+    n=${#svr[*]}
+    for ((i=0; i<n; i++)); do
+        systemctl status ${svr[$i]} 
+    done
+}
+
+restart_group() {
+    stop_group $1
+    start_group $1
+}
+
+usage() {
+    echo $"Usage: $0 {all|controller|computer|networker|base} {start|stop|status|restart}"
+}
+
+check_group() {
+    case "$1" in
+        all | controller | computer | networker | base)
+            return
+            ;;
+        *)
+            usage
+            exit 2
+    esac
+}
+
+case "$2" in
+    start)
+        check_group $1
+        start_group $1
+        ;;
+    stop)
+        check_group $1
+        stop_group $1
+        ;;
+    enable)
+        check_group $1
+        enable_group $1
+        ;;
+    disable)
+        check_group $1
+        disable_group $1
+        ;;
+    status)
+        check_group $1
+        status_group $1
+        ;;
+    restart)
+        check_group $1
+        restart_group $1
+        ;;
+    *)
+        usage
+        exit 2
+esac
+exit $?
+

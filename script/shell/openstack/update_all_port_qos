@@ -1,0 +1,13 @@
+#!/bin/bash
+
+ids=`neutron port-list | grep '10\.' | awk -F '|' '{print $2}'`
+for id in $ids;do
+    qos_id=`neutron port-show $id | grep qos | awk -F '|' '{print $3}'`
+    qos_id=`echo $qos_id`
+    if [[ "" != "$qos_id" ]];then
+        echo "update port $id qos $qos_id"
+        neutron port-update $id --qos $qos_id
+        sleep 2
+    fi
+done
+

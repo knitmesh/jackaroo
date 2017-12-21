@@ -1,0 +1,11 @@
+#!/bin/bash
+
+count=`ps -ef |grep "/usr/bin/python /usr/bin/migration-monitor --config-file /etc/fault_migration/migration-monitor.conf --logfile /var/log/fault_migration/monitor.log" |grep -v "grep" |wc -l`
+if [ 0 == $count ];then
+    logger "migration-monitor check service: process not exist"
+    echo "migration-monitor check service: process not exist" >>/var/log/keepalived.log
+    exit 1
+fi
+
+echo "migration-monitor check service: process exist" >> /var/log/keepalived.log
+exit 0

@@ -1,0 +1,13 @@
+#!/bin/bash
+openstack-config --set /etc/nova/nova.conf DEFAULT ec2_workers 1
+openstack-config --set /etc/nova/nova.conf DEFAULT osapi_compute_workers 2
+openstack-config --set /etc/nova/nova.conf DEFAULT metadata_workers 1
+openstack-config --set /etc/nova/nova.conf conductor workers 2
+openstack-config --set /etc/cinder/cinder.conf DEFAULT osapi_volume_workers 2
+openstack-config --set /etc/neutron/neutron.conf DEFAULT api_workers 2
+openstack-config --set /etc/keystone/keystone.conf DEFAULT public_workers 2
+openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_workers 2
+openstack-config --set /etc/glance/glance-api.conf DEFAULT workers 2
+openstack-config --set /etc/glance/glance-registry.conf DEFAULT workers 2
+
+

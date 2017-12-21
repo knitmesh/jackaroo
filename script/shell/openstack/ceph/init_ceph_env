@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# 清楚ceph
+service ceph stop
+mount | grep "/var/lib/ceph/osd/" | awk '{print $3}' | xargs umount
+rm -rf /var/lib/ceph/mon/ceph-0
+rm -f /var/lib/ceph/bootstrap-osd/ceph.keyring
+rm -fr /var/lib/ceph/osd/ceph-* 
+rm -f /etc/ceph/ceph*
+
+./remove_bcache_dev
+
+# 清空硬盘分区
+sgdisk -o /dev/sdb
+sgdisk -o /dev/sdc
+sgdisk -o /dev/sdd
+sgdisk -o /dev/sde
+
+# 关闭numa
+sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="net.ifnames=0 biosdevname=0 elevator=deadline numa=off /g' /etc/default/grub
+sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="net.ifnames=0 biosdevname=0 elevator=deadline numa=off /g' /etc/sysconfig/grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+# 关闭swap
+echo "0" >/proc/sys/vm/swappiness
+sed -i '/vm.swappiness=0/d' /etc/sysctl.conf
+echo "vm.swappiness=0" >>/etc/sysctl.conf
+
+# 释放内存
+free -m
+sync
+echo 3 > /proc/sys/vm/drop_caches
+
+### 优化ssd
+# 垃圾回收
+blkdiscard /dev/sdb
+
+# 修改ssd的调度算法
+echo deadline >/sys/block/sdb/queue/scheduler
+
+
+echo 8192 > /sys/block/sdb/queue/nr_requests
+echo 4096 > /sys/block/sdc/queue/nr_requests
+echo 4096 > /sys/block/sdd/queue/nr_requests
+echo 4096 > /sys/block/sde/queue/nr_requests
+
+echo 8192 > /sys/block/sdb/queue/read_ahead_kb
+echo 4096 > /sys/block/sdc/queue/read_ahead_kb
+echo 4096 > /sys/block/sdd/queue/read_ahead_kb
+echo 4096 > /sys/block/sde/queue/read_ahead_kb
+
+echo 5 > /proc/sys/vm/dirty_background_ratio
+echo 10 > /proc/sys/vm/dirty_ratio

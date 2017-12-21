@@ -1,0 +1,149 @@
+#!/bin/bash
+
+set -e
+set -u
+
+if [[ "" == "$1" ]];then
+    echo "args error..."
+    exit 1
+fi
+
+cluster='ceph'
+ceph_root_dir='/var/lib/ceph'
+ceph_conf='/etc/ceph/ceph.conf'
+data_disks=$1
+data_split_num=3
+mon_addr=192.168.66.117
+public_network=192.168.66.0/24
+
+# pkill ceph-mon || true
+# # cluster wide parameters
+# mkdir -p ${ceph_root_dir}/log
+# cat > $ceph_conf <<EOF
+# [global]
+# fsid = $(uuidgen)
+# # osd_crush_chooseleaf_type = 1
+# auth_cluster_required = none
+# auth_service_required = none
+# auth_client_required = none
+# osd_pool_default_size = 2
+# public_network = ${public_network}
+# EOF
+# 
+# # single monitor
+# mon_data="${ceph_root_dir}/mon/${cluster}-0"
+# mkdir -p $mon_data
+# 
+# cat >> $ceph_conf <<EOF
+# [mon.0]
+# mon_data = ${mon_data}
+# mon_addr = ${mon_addr}
+# EOF
+# 
+# ceph-mon --id 0 --mkfs --keyring /dev/null
+# touch ${mon_data}/keyring
+# touch $mon_data/sysvinit
+# # ceph-mon --id 0 
+
+### 分区
+journal_split_num=0
+# 对各个磁盘分区
+for disk in $data_disks; do
+    disk=/dev/${disk}
+    sgdisk -o ${disk}
+    data_disk_size=`fdisk -l $disk  | grep "Disk ${disk}:" | awk '{print $5}'`
+    # 转换成KB
+    data_disk_size=$(( $data_disk_size/1024 ))
+    split_disk_size=$(( $data_disk_size/$data_split_num ))
+    ptype_tobe="89c57f98-2fe5-4dc0-89c1-f3ad0ceff2be"
+    for ((partnum=1;partnum<=$data_split_num;partnum++));do
+        data_uuid=`uuidgen`
+        start=$(( ($partnum-1)*$split_disk_size ))
+        end=$(( $start+$split_disk_size-1 ))
+        if [[ "$partnum" == "$data_split_num" ]]; then
+            sgdisk --largest-new=$partnum \
+                --change-name="$partnum:ceph data $partnum" \
+                --partition-guid="$partnum:${data_uuid}" \
+                --typecode="$partnum:${ptype_tobe}" \
+                --mbrtogpt -- ${disk}
+            break
+        fi
+        sgdisk --new="$partnum:${start}K:${end}K" \
+            --change-name="$partnum:ceph data $partnum" \
+            --partition-guid="$partnum:${data_uuid}" \
+            --typecode="$partnum:${ptype_tobe}" \
+            --mbrtogpt -- ${disk}
+    done
+    journal_split_num=$(( $journal_split_num + $data_split_num ))
+done
+
+echo "journal_split_num: $journal_split_num"
+
+# 对journal disk分区
+journal_disk=/dev/sdb
+sgdisk -o ${journal_disk}
+journal_disk_size=`fdisk -l $journal_disk  | grep "Disk $journal_disk:" | awk '{print $5}'`
+journal_disk_size=$(( $journal_disk_size/1024 ))
+split_disk_size=$(( $journal_disk_size/$journal_split_num ))
+ptype='45b0969e-9b03-4f30-b4c6-b4b80ceff106'
+for ((partnum=1;partnum<=$journal_split_num;partnum++));do
+    journal_uuid=`uuidgen`
+    start=$(( ($partnum-1)*$split_disk_size ))
+    end=$(( $start+$split_disk_size-1 ))
+    if [[ "$partnum" == "$journal_split_num" ]]; then
+        sgdisk --largest-new=$partnum \
+            --change-name="$partnum:ceph journal $partnum" \
+            --partition-guid="$partnum:${journal_uuid}" \
+            --typecode="$partnum:${ptype}" \
+            --mbrtogpt -- $journal_disk
+        break
+    fi
+    sgdisk --new="$partnum:${start}K:${end}K" \
+        --change-name="$partnum:ceph journal $partnum" \
+        --partition-guid="$partnum:${journal_uuid}" \
+        --typecode="$partnum:${ptype}" \
+        --mbrtogpt -- $journal_disk
+done
+
+### 创建各个osd
+pkill ceph-osd || true
+host=`hostname`
+data_disk_num=0
+for disk in $data_disks; do
+    for ((partnum=1;partnum<=$data_split_num;partnum++));do
+        osd_id=$(ceph osd create)
+
+        osd_data="${ceph_root_dir}/osd/${cluster}-${osd_id}"
+        disk_part=${disk}${partnum}
+        mkdir -p $osd_data
+        mkfs -t xfs -f -i size=2048 /dev/$disk_part
+        echo "osd${osd_id} use /dev/$disk_part, mounted on $osd_data"
+        mount -t xfs -o rw,noatime,inode64,logbsize=256k,delaylog /dev/$disk_part $osd_data
+
+        # prepare for journal
+        journal_partnum=$(( $data_split_num*$data_disk_num+$partnum ))
+        journal_real_path=${journal_disk}${journal_partnum}
+        journal_path=${osd_data}/journal
+        ln -s $journal_real_path $journal_path
+
+        cat >> $ceph_conf <<EOF
+[osd.${osd_id}]
+osd_data = ${osd_data}
+osd_journal = ${journal_path}
+# osd_journal_size = 1000
+EOF
+        ceph osd crush add osd.${osd_id} 1 root=default host=${host}
+        ceph-osd --id ${osd_id} --mkfs --osd-journal $journal_path
+        touch $osd_data/sysvinit
+        # ceph-osd --id ${osd_id}
+    done
+    data_disk_num=$(( $data_disk_num+1 ))
+done
+
+
+# check that it works
+# rados --pool data put group /etc/group
+# rados --pool data get group ${ceph_root_dir}/group
+# diff /etc/group ${ceph_root_dir}/group
+# ceph osd tree
+

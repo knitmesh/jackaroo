@@ -1,0 +1,24 @@
+#!/bin/bash
+netns=`ip netns | grep 'qrouter-'`
+
+for ns in $netns
+do
+    ns_exec="ip netns exec $ns"
+    $ns_exec iptables -t filter -F phicloud_kxy
+    $ns_exec iptables -t filter -X phicloud_kxy
+    $ns_exec iptables -t filter -D FORWARD -j phicloud_kxy
+
+    $ns_exec iptables -t filter -N phicloud_kxy
+    $ns_exec iptables -t filter -I FORWARD -j phicloud_kxy
+    
+    subnets=`$ns_exec ip route ls | grep 'qr-' | awk '{print $1}'`
+    for subnet in $subnets
+    do
+        if [[ "10." != "${subnet:0:3}" ]];then
+            continue
+        fi
+        $ns_exec iptables -t filter -A phicloud_kxy -s $subnet ! -d 10.0.0.0/8 -j RETURN
+        $ns_exec iptables -t filter -A phicloud_kxy -s $subnet ! -d $subnet -j DROP
+    done
+done
+

@@ -1,0 +1,16 @@
+#!/bin/bash
+nss=`ip netns`
+for ns in $nss;do
+    ip netns del $ns
+done
+neutron-ovs-cleanup
+
+rm /var/log/neutron/* -f
+
+# echo "restart l3 agent"
+# systemctl restart neutron-l3-agent
+echo "restart ovs agent"
+systemctl restart neutron-openvswitch-agent neutron-metadata-agent
+
+sleep 5
+systemctl restart openstack-nova-compute

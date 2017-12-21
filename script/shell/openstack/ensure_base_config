@@ -1,0 +1,96 @@
+#!/bin/bash
+. /root/.functions
+
+ENABLE_KERNEL_GRUB_LINE=${ENABLE_KERNEL_GRUB_LINE:-'3.10.0-123.9.3'}
+
+# 修改防火墙服务
+systemctl disable NetworkManager
+
+#### common config
+sed -i "s/^Defaults \+requiretty/#Defaults requiretty/g" /etc/sudoers
+
+# change default kernel grub line
+kernel_grub_line=`cat /etc/grub2.cfg | grep 'menuentry' | grep $ENABLE_KERNEL_GRUB_LINE | awk -F "'" '{print $2}'`
+if [[ "" != "$kernel_grub_line" ]]; then
+    grub2-set-default "$kernel_grub_line"
+    RETVAL=$?; quick_check $RETVAL "set default kernel grub line"
+fi
+
+# 配置防火墙
+sed -i '/net.ipv4.ip_forward/d' /etc/sysctl.conf
+echo "net.ipv4.ip_forward = 1" >>/etc/sysctl.conf
+sed -i '/net.bridge.bridge-nf-call-iptables/d' /etc/sysctl.conf
+echo "net.bridge.bridge-nf-call-iptables = 1" >>/etc/sysctl.conf
+sysctl -p
+
+# selinux config
+setenforce 0
+sed -i s/^SELINUX=.*/SELINUX=disabled/g /etc/selinux/config
+RETVAL=$?; quick_check $RETVAL "disable selinux"
+
+# change time zone
+mv /etc/localtime /etc/localtime.bak
+ln -s /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+RETVAL=$?; quick_check $RETVAL "change default timezone"
+hwclock -w
+
+# ssh慢的问题
+sed -i "s/^#*[[:space:]]*GSSAPIAuthentication .\+/GSSAPIAuthentication no/g" /etc/ssh/ssh_config
+sed -i "s/^#*[[:space:]]*GSSAPIAuthentication .\+/GSSAPIAuthentication no/g" /etc/ssh/sshd_config
+sed -i 's/^#*UseDNS .\+/UseDNS no/g' /etc/ssh/sshd_config
+sed -i 's/^hosts:.+/hosts: files/g' /etc/nsswitch.conf
+RETVAL=$?; quick_check $RETVAL "change sshd config"
+
+#### system tune
+# 关闭numa
+sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="net.ifnames=0 biosdevname=0 elevator=deadline numa=off /g' /etc/default/grub
+sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="net.ifnames=0 biosdevname=0 elevator=deadline numa=off /g' /etc/sysconfig/grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+RETVAL=$?; quick_check $RETVAL "Off numa"
+
+# 关闭swap
+echo "0" >/proc/sys/vm/swappiness
+sed -i '/vm.swappiness=0/d' /etc/sysctl.conf
+echo "vm.swappiness=0" >>/etc/sysctl.conf
+RETVAL=$?; quick_check $RETVAL "Off swap"
+
+INSTALL_TAG='xcloud install'
+cat > /tmp/tuning.tmp <<EOF
+# $INSTALL_TAG
+# Use TCP syncookies when needed
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 8192
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 1800
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_timestamps = 1
+
+#Enable TCP window scaling
+net.ipv4.tcp_window_scaling = 1
+
+#Increase TCP max buffer size
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+
+#Increase Linux autotuning TCP buffer limits
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+
+#Increase number of ports available
+net.ipv4.ip_local_port_range = 1024 65535
+
+net.netfilter.nf_conntrack_max = 655350
+net.netfilter.nf_conntrack_tcp_timeout_established = 7200
+
+# ip forward
+net.ipv4.ip_forward = 1
+
+# swap
+vm.swappiness=0
+EOF
+ret=`grep -P "^# $INSTALL_TAG" /etc/sysctl.conf`
+if [ "" == "$ret" ];then
+    cat /tmp/tuning.tmp >> /etc/sysctl.conf
+    sysctl -p
+fi
+

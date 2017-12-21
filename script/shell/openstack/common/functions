@@ -1,0 +1,835 @@
+#!/bin/bash
+INSTALL_TAG='xcloud install'
+check(){
+    if [[ $1 -ne 0 ]]; then
+        echo -e "\033[40;31mFail: $2\033[0m"
+        to_exit
+    else
+        echo -e "\033[40;32mPASS $2\033[0m"
+        fi
+    sleep 2
+}
+
+to_exit(){
+    read -p "Do you want exit? [Y/n]: " yes
+    if [[ $yes = "Y" || $yes = "y" ]];then
+        exit
+    fi
+}
+
+quick_check(){
+    if [[ $1 -ne 0 ]]; then
+        echo -e "\033[40;31mFail: $2\033[0m"
+        to_exit
+    else
+        echo -e "\033[40;32mPASS $2\033[0m"
+    fi
+}
+
+checkid(){
+    cid=`id -u`
+    if [[ $cid != "0" ]]; then
+        echo -e "\033[40;31m Warning: You must be root to run this script!\033[0m"
+        exit
+    fi
+}
+
+tips(){
+    echo -e "\033[40;32m$1\033[0m"
+    sleep 2
+}
+
+REG_ETH='[a-zA-Z][\.\-a-zA-Z0-9]{1,20}'
+REG_HOSTNAME='((^[a-zA-Z0-9]){1,}([a-zA-Z0-9_\-\.\*]{0,61}[a-zA-Z0-9])$)+'
+REG_IP='((?:(?:25[0-5]|2[0-4]\d|((1\d{2})|([1-9]?\d)))\.){3}(?:25[0-5]|2[0-4]\d|((1\d{2})|([1-9]?\d))))'
+REG_DOMAIN='([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}'
+get_input(){
+    name=$1
+    tip=$2
+    reg=$3
+
+    tmp=\$"$name"
+    value=`eval "echo $tmp"`
+
+    echo "$reg"
+    if [[ "" != "$reg" ]]; then
+        echo $value | grep -q -P "$reg"
+        [ $? -eq 0 ] && return
+        [[ "" != "$value" ]] && echo "Arg[${name}] value[${value}] Format Error..."
+    else
+        [[ "" != "$value" ]] && return
+    fi
+
+    read -p "$tip" value
+    eval "$name=\"$value\""
+
+    get_input "$name" "$tip" "$reg"
+}
+
+reg_check(){
+    value=$1
+    tip=$2
+    reg=$3
+
+    echo $value | grep -q -P "$reg"
+    RETVAL=$?
+    quick_check $RETVAL "Check $tip"
+}
+
+base64_encode(){
+    echo "from nova.b64code import encrypt;print encrypt('""$1""')" | python
+}
+
+install_pkg(){
+    pkg=$1
+    env http_proxy= https_proxy= no_proxy= yum --disablerepo=* --enablerepo=openstack-http install -y --nogpgcheck $pkg
+    RETVAL=$?
+    quick_check $RETVAL "Install $pkg!"
+}
+
+ensure_config(){
+    PY_BIN=${PY_BIN:-"/usr/bin"}
+    INSTALL_MODE=${INSTALL_MODE:-}
+    DNS1=${DNS1:-114.114.115.115}
+    DNS2=${DNS2:-8.8.8.8}
+
+    HOST_NAME=${HOST_NAME:-}
+    NIC_NAME_RULES=${NIC_NAME_RULES:-'default'}
+
+    CONTROLLER_INFO=${CONTROLLER_INFO:-}
+    MANAGE_NETWORK=${MANAGE_NETWORK:-}
+    INTERNAL_NETWORK=${INTERNAL_NETWORK:-}
+    PUBLIC_NETWORK=${PUBLIC_NETWORK:-}
+    GATEWAY=${GATEWAY:-}
+    GATEWAY_DEV=${GATEWAY_DEV:-}
+    GATEWAY_IP=${GATEWAY_IP:-}
+
+    RESTART_NETWORK=${RESTART_NETWORK:-'false'}
+
+    MANAGE_NETWORK_ETH=${MANAGE_NETWORK_ETH:-}
+    MANAGE_NETWORK_IP=${MANAGE_NETWORK_IP:-}
+    MANAGE_NETWORK_MASK=${MANAGE_NETWORK_MASK:-}
+
+    INTERNAL_NETWORK_ETH=${INTERNAL_NETWORK_ETH:-}
+    INTERNAL_NETWORK_IP=${INTERNAL_NETWORK_IP:-}
+    INTERNAL_NETWORK_MASK=${INTERNAL_NETWORK_MASK:-}
+
+    PUBLIC_NETWORK_ETH=${PUBLIC_NETWORK_ETH:-}
+    PUBLIC_NETWORK_IP=${PUBLIC_NETWORK_IP:-}
+    PUBLIC_NETWORK_MASK=${PUBLIC_NETWORK_MASK:-}
+
+    HOST=${HOST:-controller}
+    CONTROLLER_HOSTNAME=${CONTROLLER_HOSTNAME:-$HOST_NAME}
+    CONTROLLER_IP=${CONTROLLER_IP:-$MANAGE_NETWORK_IP}
+    VNC_PROXY_DOMAIN=${VNC_PROXY_DOMAIN:-$CONTROLLER_IP}
+
+
+    DB_HOST=${DB_HOST:-$CONTROLLER_IP}
+    DB_PWD=${DB_PWD:-}
+    DB_USER=${DB_USER:-root}
+
+    DB_SST_PWD=${DB_SST_PWD:-$DB_PWD}
+
+    MQ_HOST=${MQ_HOST:-"$CONTROLLER_IP:5672"}
+    MEMCACHED_HOST=${MEMCACHED_HOST:-"$CONTROLLER_IP:11211"}
+    MQ_PWD=${MQ_PWD:-'aaaaaa'}
+
+
+    ADMIN_TOKEN=${ADMIN_TOKEN:-'aaaaaa'}
+    ADMIN_PASS=${ADMIN_PASS:-'aaaaaa'}
+    ADMIN_EMAIL=${ADMIN_EMAIL:-'admin@example.com'}
+
+    DEMO_PASS=${DEMO_PASS:-'aaaaaa'}
+    DEMO_EMAIL=${DEMO_EMAIL:-'admin@example.com'}
+
+    ZONE=${ZONE:-"nova"}
+
+    GLANCE_HOST=${GLANCE_HOST:-$CONTROLLER_IP}
+    TEST_IMG_NAME=${TEST_IMG_NAME:-"cirros-0.3.1-x86_32"}
+
+
+    KEYSTONE_HOST=${KEYSTONE_HOST:-$CONTROLLER_IP}
+    KEYSTONE_DB_PWD=${KEYSTONE_DB_PWD:-$DB_PWD}
+    NTP_SYNC_SERVERS=${NTP_SYNC_SERVERS:-$KEYSTONE_HOST}
+
+    CLOG_EMAIL=${CLOG_EMAIL:-$ADMIN_EMAIL}
+    CLOG_DB_PWD=${CLOG_DB_PWD:-$DB_PWD}
+    CLOG_PWD=${CLOG_PWD:-'aaaaaa'}
+
+    NOVA_HOST=${NOVA_HOST:-$CONTROLLER_IP}
+    NOVA_EMAIL=${NOVA_EMAIL:-$ADMIN_EMAIL}
+    NOVA_PWD=${NOVA_PWD:-'aaaaaa'}
+    NOVA_DB_PWD=${NOVA_DB_PWD:-$DB_PWD}
+
+    NEUTRON_HOST=${NEUTRON_HOST:-$CONTROLLER_IP}
+    NEUTRON_EMAIL=${NEUTRON_EMAIL:-$ADMIN_EMAIL}
+    NEUTRON_PWD=${NEUTRON_PWD:-'aaaaaa'}
+    NEUTRON_DB_PWD=${NEUTRON_DB_PWD:-$DB_PWD}
+    METADATA_SECRET=${METADATA_SECRET:-'aaaaaa'}
+
+    NEUTRON_DVR_ENABLE=${NEUTRON_DVR_ENABLE:-'false'}
+    NEUTRON_MECHANISM_DRIVER=${NEUTRON_MECHANISM_DRIVER:-'linuxbridge'}
+
+    NEUTRON_QOS_MAX_KBPS=${NEUTRON_QOS_MAX_KBPS:-1024}
+    NEUTRON_QOS_MAX_BURST_KBPS=${NEUTRON_QOS_MAX_BURST_KBPS:-1024}
+
+
+    CINDER_EMAIL=${CINDER_EMAIL:-$ADMIN_EMAIL}
+    CINDER_PWD=${CINDER_PWD:-'aaaaaa'}
+    CINDER_DB_PWD=${CINDER_DB_PWD:-$DB_PWD}
+    CINDER_BACKEND_NAME=${CINDER_BACKEND_NAME:-"ceph"}
+
+
+    HEAT_HOST=${HEAT_HOST:-$CONTROLLER_IP}
+    HEAT_EMAIL=${HEAT_EMAIL:-$ADMIN_EMAIL}
+    HEAT_PWD=${HEAT_PWD:-'aaaaaa'}
+    HEAT_DB_PWD=${HEAT_DB_PWD:-$DB_PWD}
+    BUSINESS_IP=${BUSINESS_IP:-$CONTROLLER_IP}
+
+    CEILOMETER_EMAIL=${CEILOMETER_EMAIL:-$ADMIN_EMAIL}
+    CEILOMETER_PWD=${CEILOMETER_PWD:-'aaaaaa'}
+    CEILOMETER_DB_PWD=${CEILOMETER_DB_PWD:-$DB_PWD}
+    CEILOMETER_TOKEN=${CEILOMETER_TOKEN:-'194eabac0c6a52fdf2b7'}
+    CEILOMETER_EGG=${CEILOMETER_EGG-'/usr/lib/python2.7/site-packages/ceilometer-5.0.0-py2.7.egg-info/'}
+    NOVA_EGG=${NOVA_EGG-'/usr/lib/python2.7/site-packages/nova-12.0.0-py2.7.egg-info/'}
+    SNMP_READONLY_USER=${SNMP_READONLY_USER-'snmp_readonly'}
+    #the length of snmp's password must greater than 7
+    SNMP_READONLY_PASSWORD=${SNMP_READONLY_PASSWORD-'ttcloud*123'}
+
+    # when computer node and controller node is the same node
+    # this will be true in this node
+    SAMPLE_WITH_SNMP=${SAMPLE_WITH_SNMP-'false'}
+
+
+    GLANCE_EMAIL=${GLANCE_EMAIL:-$ADMIN_EMAIL}
+    GLANCE_DB_PWD=${GLANCE_DB_PWD:-$DB_PWD}
+    GLANCE_PWD=${GLANCE_PWD:-'aaaaaa'}
+
+    CEPH_MON_MEMBERS=${CEPH_MON_MEMBERS:-}
+    CEPH_POOL_SIZE=${CEPH_POOL_SIZE:-'3'}
+    CEPH_CLUSTER_NETWORK=${CEPH_CLUSTER_NETWORK:-}
+    CEPH_CLUSTER_NETWORK_CIDR=${CEPH_CLUSTER_NETWORK_CIDR:-}
+
+    CEPH_CONF_FILE=${CEPH_CONF_FILE:-}
+    CEPH_ADMIN_KEY_FILE=${CEPH_ADMIN_KEY_FILE:-}
+    CEPH_OSD_KEY_FILE=${CEPH_OSD_KEY_FILE:-}
+    CEPH_OSD_DISK_MAP_TYPE=${CEPH_OSD_DISK_MAP_TYPE:-'pure'}
+    CEPH_OSD_DISK_MAPS=${CEPH_OSD_DISK_MAPS:-}
+
+    CEPH_SECRET_UUID=${CEPH_SECRET_UUID:-'656d8bdb-96f2-445e-bf46-cd3074787a1c'}
+
+    ENABLE_KERNEL_GRUB_LINE=${ENABLE_KERNEL_GRUB_LINE:-'3.10.0-327.18.2'}
+
+    REGION=${REGION:-'default_region'}
+    NOVA_ZONE=${REGION:-'default_cluster'}
+    CINDER_ZONE=${REGION:-'default_cluster'}
+    NEUTRON_TYPE_DRIVER=${NEUTRON_TYPE_DRIVER:-'vxlan'}
+
+    VM_RBD_POOL=${VM_RBD_POOL:-'vms'}
+    VOLUME_RBD_POOL=${VOLUME_RBD_POOL:-'volumes'}
+    BACKUP_RBD_POOL=${BACKUP_RBD_POOL:-'backups'}
+    IMAGE_RBD_POOL=${IMAGE_RBD_POOL:-'images'}
+
+    HTTP_REPO_BASEURL=${HTTP_REPO_BASEURL:-"http://${CONTROLLER_IP}"}
+
+    CPU_LOAD_AVERAGE_LIMIT=${CPU_LOAD_AVERAGE_LIMIT:-"1"}
+    RAM_ALLOCATION_RATIO=${RAM_ALLOCATION_RATIO:-"1"}
+    CPU_ALLOCATION_RATIO=${CPU_ALLOCATION_RATIO:-"1"}
+
+    # DB HA
+    DB_HA=${DB_HA:-'false'}
+    DB_INITIAL_MEMBERS=${DB_INITIAL_MEMBERS:-''}
+
+    # MQ HA
+    MQ_HA=${MQ_HA:-'false'}
+    MQ_ROOT=${MQ_ROOT:-''}
+
+    # HAPROXY
+    CFG_FILE=${CFG_FILE:-'/etc/ha/haproxy.cfg'}
+    PID_FILE=${PID_FILE:-'/var/lib/ha/haproxy.pid'}
+
+    HA_ADMIN_PWD=${HA_ADMIN_PWD:-'aaaaaa'}
+
+    DB_CLUSTER=${DB_CLUSTER:-'controller1:3306'}
+    MQ_CLUSTER=${MQ_CLUSTER:-'controller1:5672'}
+    MEMCACHED_CLUSTER=${MEMCACHED_CLUSTER:-'controller1:11211'}
+    KEYSTONE_ADMIN_CLUSTER=${KEYSTONE_ADMIN_CLUSTER:-'controller1:35357'}
+    KEYSTONE_CLUSTER=${KEYSTONE_CLUSTER:-'controller1:5000'}
+    GLANCE_REGISTRY_CLUSTER=${GLANCE_REGISTRY_CLUSTER:-'controller1:9191'}
+    GLANCE_API_CLUSTER=${GLANCE_API_CLUSTER:-'controller1:9292'}
+
+    EC2_API_CLUSTER=${EC2_API_CLUSTER:-'controller1:8773'}
+    NOVA_API_CLUSTER=${NOVA_API_CLUSTER:-'controller1:8774'}
+    METADATA_API_CLUSTER=${METADATA_API_CLUSTER:-'controller1:8775'}
+    VNC_CLUSTER=${VNC_CLUSTER:-'controller1:6080'}
+
+    CLOG_API_CLUSTER=${CLOG_API_CLUSTER:-'controller1:9898'}
+    NEUTRON_API_CLUSTER=${NEUTRON_API_CLUSTER:-'controller1:9696'}
+    CINDER_API_CLUSTER=${CINDER_API_CLUSTER:-'controller1:8776'}
+    HEAT_API_CLUSTER=${HEAT_API_CLUSTER:-'controller1:8004'}
+    HEAT_API_CFN_CLUSTER=${HEAT_API_CFN_CLUSTER:-'controller1:8000'}
+    CEILOMETER_API_CLUSTER=${CEILOMETER_API_CLUSTER:-'controller1:8777'}
+
+    WEB_ADMIN_CLUSTER=${WEB_ADMIN_CLUSTER:-'controller1:8090'}
+    WEB_SITE_CLUSTER=${WEB_SITE_CLUSTER:-'controller1:8080'}
+    BILLING_CLUSTER=${BILLING_CLUSTER:-'controller1:8092'}
+
+    # keeplived
+    KP_ROUTER_ID=${KP_ROUTER_ID:-'100'}
+    KP_PR=${KP_PR:-'100'}
+    KP_VIP=${KP_VIP:-''}
+    KP_EMAIL=${KP_EMAIL:-'ops@t2cloud.net'}
+
+    #MONGO
+    MONGO_DB_HOST=${MONGO_DB_HOST:-$CONTROLLER_IP}
+    LOCAL_BIND_IP=${LOCAL_BIND_IP:-$CONTROLLER_IP}
+    MONGO_DB_ROOT=${MONGO_DB_ROOT:-'false'}
+    MONGO_DB_REPLICA=${MONGO_DB_REPLICA:-'true'}
+    MONGODB_OPLOG_SIZE=${MONGODB_OPLOG_SIZE:-'default'}
+
+    MONGODB_REPLICA_SET=${MONGODB_REPLICA_SET:-'192.168.87.31 192.168.87.32 192.168.87.33'}
+    MONGODB_CONFIG_SET=${MONGODB_CONFIG_SET:-'192.168.87.31:27021,192.168.87.32:27021,192.168.87.33:27021'}
+
+    SHARD_CONF=${SHARD_CONF:-'/var/lib/mongodb/shard-1/ /var/log/mongodb/shard1.log 27018 s1
+/var/lib/mongodb/shard-2/ /var/log/mongodb/shard2.log 27019 s2
+/var/lib/mongodb/shard-3/ /var/log/mongodb/shard3.log 27020 s3'}
+    CONFIG_CONF=${CONFIG_CONF:-'/var/lib/mongodb/config/ /var/log/mongodb/config1.log 27021'}
+    LOG_PATH=${LOG_PATH:-'/var/log/mongodb/'}
+
+    MONGO_MEMORY_LIMIT=${MONGO_MEMORY_LIMIT:-'4G'}
+    MONGO_DB_PWD=${MONGO_DB_PWD:-'aaaaaa'}
+    MONGODB_RESTART_SCRIPT=${MONGODB_RESTART_SCRIPT:-'/usr/local/bin/mongodb_service'}
+    MONGODB_ADD_USER_SCRIPT=${MONGODB_ADD_USER_SCRIPT:-'/usr/local/bin/mongodb_add_user'}
+    LOCAL_KEYFILE=${LOCAL_KEYFILE:-'/var/lib/mongodb/keyfile'}
+}
+
+get_system_var(){
+    CPU_THREADS_NUM=`cat /proc/cpuinfo  | grep processor | wc -l`
+    CPU_NUM=$(( $(cat /proc/cpuinfo | grep 'physical id' | sort | tail -n 1 | awk -F':' '{print $2}')+1 ))
+}
+
+get_mac(){
+    nic=$1
+    mac=`ip link show dev $nic | grep link/ether | awk '{print $2}' | tr '[a-z]' '[A-Z]'`
+    echo $mac
+}
+
+get_my_hostname(){
+    reg_info="^${REG_HOSTNAME}\$"
+    HOST_NAME=`hostname`
+    reg_check "${HOST_NAME}" "Hostname" "$reg_info"
+    ensure_config
+}
+
+get_gateway(){
+    # reg_info="^${REG_ETH} ${REG_IP}\$"
+    GATEWAY=`ip route ls | grep default | awk '{print $5,$3}' | sed -n "1,1"p`
+    # reg_check "${GATEWAY}" "Gateway[eth0 192.168.1.3]" "$reg_info"
+    arr=(${GATEWAY// / })
+    GATEWAY_DEV=${arr[0]}
+    GATEWAY_IP=${arr[1]}
+    ensure_config
+}
+
+get_controller_info(){
+    reg_info="^${REG_HOSTNAME} ${REG_IP}\$"
+    get_input "CONTROLLER_INFO" "Input Controller INFO[hostname 192.168.1.3]: " "$reg_info"
+    arr=(${CONTROLLER_INFO// / })
+    CONTROLLER_HOSTNAME=${arr[0]}
+    CONTROLLER_IP=${arr[1]}
+    ensure_config
+}
+
+get_ip(){
+    desc=$1
+    reg_info="^${REG_IP}\$"
+    get_input "$desc" "Input $desc IP[192.168.1.3]: " "$reg_info"
+    ensure_config
+}
+
+get_controller_ip(){
+    get_ip 'CONTROLLER_IP'
+}
+
+get_manage_network(){
+    reg_info="^${REG_ETH}\$"
+    get_input "MANAGE_NETWORK_ETH" "Input Manage network NIC[eth0]: " "$reg_info"
+
+    config_file=/etc/sysconfig/network-scripts/ifcfg-${MANAGE_NETWORK_ETH}
+    MANAGE_NETWORK_IP=`crudini --get $config_file '' IPADDR`
+    MANAGE_NETWORK_MASK=`crudini --get $config_file '' NETMASK`
+    MANAGE_NETWORK="$MANAGE_NETWORK_ETH $MANAGE_NETWORK_IP $MANAGE_NETWORK_MASK"
+
+    reg_info="^${REG_ETH} ${REG_IP} ${REG_IP}\$"
+    reg_check "${MANAGE_NETWORK}" "Manage network[eth0 192.168.1.3 255.255.255.0]" "$reg_info"
+
+    arr=(${MANAGE_NETWORK// / })
+    MANAGE_NETWORK_ETH=${arr[0]}
+    MANAGE_NETWORK_IP=${arr[1]}
+    MANAGE_NETWORK_MASK=${arr[2]}
+
+    tmpa=$NETWORK; tmpb=$BROADCAST; tmpc=$PREFIX
+    eval `ipcalc -mbpn $MANAGE_NETWORK_IP $MANAGE_NETWORK_MASK`
+    MANAGE_NETWORK_NET=$NETWORK
+    MANAGE_NETWORK_BCAST=$BROADCAST
+    MANAGE_NETWORK_PREFIX=$PREFIX
+    MANAGE_NETWORK_CIDR="$NETWORK/$PREFIX"
+    NETWORK=$tmpa; BROADCAST=$tmpb; PREFIX=$tmpc
+
+    ensure_config
+}
+
+get_internal_network(){
+    reg_info="^${REG_ETH}\$"
+    get_input "INTERNAL_NETWORK_ETH" "Input Internal network NIC[eth0]: " "$reg_info"
+
+    config_file=/etc/sysconfig/network-scripts/ifcfg-${INTERNAL_NETWORK_ETH}
+    INTERNAL_NETWORK_IP=`crudini --get $config_file '' IPADDR`
+    INTERNAL_NETWORK_MASK=`crudini --get $config_file '' NETMASK`
+    INTERNAL_NETWORK="$INTERNAL_NETWORK_ETH $INTERNAL_NETWORK_IP $INTERNAL_NETWORK_MASK"
+
+    reg_info="^${REG_ETH} ${REG_IP} ${REG_IP}\$"
+    reg_check "${INTERNAL_NETWORK}" "Internal network[eth0 192.168.1.3 255.255.255.0]" "$reg_info"
+
+    arr=(${INTERNAL_NETWORK// / })
+    INTERNAL_NETWORK_ETH=${arr[0]}
+    INTERNAL_NETWORK_IP=${arr[1]}
+    INTERNAL_NETWORK_MASK=${arr[2]}
+
+    tmpa=$NETWORK; tmpb=$BROADCAST; tmpc=$PREFIX
+    eval `ipcalc -mbpn $INTERNAL_NETWORK_IP $INTERNAL_NETWORK_MASK`
+    INTERNAL_NETWORK_NET=$NETWORK
+    INTERNAL_NETWORK_BCAST=$BROADCAST
+    INTERNAL_NETWORK_PREFIX=$PREFIX
+    INTERNAL_NETWORK_CIDR="$NETWORK/$PREFIX"
+    NETWORK=$tmpa; BROADCAST=$tmpb; PREFIX=$tmpc
+
+    ensure_config
+}
+
+get_public_network(){
+    reg_info="^${REG_ETH}\$"
+    get_input "PUBLIC_NETWORK_ETH" "Input Public network NIC[eth0]: " "$reg_info"
+
+    config_file=/etc/sysconfig/network-scripts/ifcfg-${PUBLIC_NETWORK_ETH}
+    PUBLIC_NETWORK_IP=`crudini --get $config_file '' IPADDR`
+    PUBLIC_NETWORK_MASK=`crudini --get $config_file '' NETMASK`
+    PUBLIC_NETWORK="$PUBLIC_NETWORK_ETH $PUBLIC_NETWORK_IP $PUBLIC_NETWORK_MASK"
+
+    reg_info="^${REG_ETH} ${REG_IP} ${REG_IP}\$"
+    reg_check "${PUBLIC_NETWORK}" "Public network[eth0 192.168.1.3 255.255.255.0]" "$reg_info"
+
+    arr=(${PUBLIC_NETWORK// / })
+    PUBLIC_NETWORK_ETH=${arr[0]}
+    PUBLIC_NETWORK_IP=${arr[1]}
+    PUBLIC_NETWORK_MASK=${arr[2]}
+
+    tmpa=$NETWORK; tmpb=$BROADCAST; tmpc=$PREFIX
+    eval `ipcalc -mbpn $PUBLIC_NETWORK_IP $PUBLIC_NETWORK_MASK`
+    PUBLIC_NETWORK_NET=$NETWORK
+    PUBLIC_NETWORK_BCAST=$BROADCAST
+    PUBLIC_NETWORK_PREFIX=$PREFIX
+    PUBLIC_NETWORK_CIDR="$NETWORK/$PREFIX"
+    NETWORK=$tmpa; BROADCAST=$tmpb; PREFIX=$tmpc
+
+    ensure_config
+}
+
+get_public_network_nocheck(){
+    reg_info="^${REG_ETH}\$"
+    get_input "PUBLIC_NETWORK_ETH" "Input Public network NIC[eth0]: " "$reg_info"
+
+    config_file=/etc/sysconfig/network-scripts/ifcfg-${PUBLIC_NETWORK_ETH}
+    PUBLIC_NETWORK_IP=`crudini --get $config_file '' IPADDR 2> /dev/null`
+    PUBLIC_NETWORK_MASK=`crudini --get $config_file '' NETMASK 2> /dev/null`
+    PUBLIC_NETWORK="$PUBLIC_NETWORK_ETH $PUBLIC_NETWORK_IP $PUBLIC_NETWORK_MASK"
+
+    reg_info="^${REG_ETH} ${REG_IP} ${REG_IP}\$"
+
+    arr=(${PUBLIC_NETWORK// / })
+    PUBLIC_NETWORK_ETH=${arr[0]}
+    PUBLIC_NETWORK_IP=${arr[1]}
+    PUBLIC_NETWORK_MASK=${arr[2]}
+
+    tmpa=$NETWORK; tmpb=$BROADCAST; tmpc=$PREFIX
+    if [[ ! -z $PUBLIC_NETWORK_IP ]]; then
+      eval `ipcalc -mbpn $PUBLIC_NETWORK_IP $PUBLIC_NETWORK_MASK`
+      PUBLIC_NETWORK_NET=$NETWORK
+      PUBLIC_NETWORK_BCAST=$BROADCAST
+      PUBLIC_NETWORK_PREFIX=$PREFIX
+      PUBLIC_NETWORK_CIDR="$NETWORK/$PREFIX"
+      NETWORK=$tmpa; BROADCAST=$tmpb; PREFIX=$tmpc
+    fi
+
+    ensure_config
+}
+
+get_storage_network(){
+    reg_info="^${REG_ETH}\$"
+    get_input "STORAGE_NETWORK_ETH" "Input Storage network NIC[eth0]: " "$reg_info"
+
+    config_file=/etc/sysconfig/network-scripts/ifcfg-${STORAGE_NETWORK_ETH}
+    STORAGE_NETWORK_IP=`crudini --get $config_file '' IPADDR`
+    STORAGE_NETWORK_MASK=`crudini --get $config_file '' NETMASK`
+    STORAGE_NETWORK="$STORAGE_NETWORK_ETH $STORAGE_NETWORK_IP $STORAGE_NETWORK_MASK"
+
+    reg_info="^${REG_ETH} ${REG_IP} ${REG_IP}\$"
+    reg_check "${STORAGE_NETWORK}" "Storage network[eth0 192.168.1.3 255.255.255.0]" "$reg_info"
+
+    arr=(${STORAGE_NETWORK// / })
+    STORAGE_NETWORK_ETH=${arr[0]}
+    STORAGE_NETWORK_IP=${arr[1]}
+    STORAGE_NETWORK_MASK=${arr[2]}
+
+    tmpa=$NETWORK; tmpb=$BROADCAST; tmpc=$PREFIX
+    eval `ipcalc -mbpn $STORAGE_NETWORK_IP $STORAGE_NETWORK_MASK`
+    STORAGE_NETWORK_NET=$NETWORK
+    STORAGE_NETWORK_BCAST=$BROADCAST
+    STORAGE_NETWORK_PREFIX=$PREFIX
+    STORAGE_NETWORK_CIDR="$NETWORK/$PREFIX"
+    NETWORK=$tmpa; BROADCAST=$tmpb; PREFIX=$tmpc
+
+    ensure_config
+}
+
+get_public_eth(){
+    reg_info="^${REG_ETH}\$"
+    get_input "PUBLIC_NETWORK_ETH" "Input Public Interface[eth0]: " "$reg_info"
+    ensure_config
+}
+get_vnc_proxy_domain(){
+    reg_info="^${REG_IP}|${REG_DOMAIN}\$"
+    get_input "VNC_PROXY_DOMAIN" "Input vnc proxy domain[x.cloud.com or 1.1.1.1]: " "$reg_info"
+    ensure_config
+}
+get_ntp_sync_server(){
+    REG_HOSTNAME2='([a-zA-Z0-9]){1,}([a-zA-Z0-9_\-\.\*]{0,61}[a-zA-Z0-9])'
+    reg_info="^(${REG_DOMAIN},)*${REG_DOMAIN}\$"
+    reg_info="^(${REG_IP},)*${REG_IP}\$"
+    reg_info="^(${REG_HOSTNAME2},)*${REG_HOSTNAME2}\$"
+    reg_info="^(((${REG_HOSTNAME2})|(${REG_IP})|(${REG_DOMAIN})),)*((${REG_HOSTNAME2})|(${REG_IP})|(${REG_DOMAIN}))\$"
+
+    get_input "NTP_SYNC_SERVERS" "Input ntp sync servers [x1.cloud.com,x2.cloud.com,x3.cloud.com]: " "$reg_info"
+    ensure_config
+}
+get_db_pwd(){
+    get_input "DB_PWD" "Input DB Password: "
+    ensure_config
+}
+get_mq_host(){
+    if [ "" != "$MQ_CLUSTER" ];then
+        MQ_HOST=`awk -v str="$MQ_CLUSTER" 'BEGIN{info=str;gsub(/\s+/,",",info);print info}'`
+    fi
+}
+get_memcached_host(){
+    if [ "" != "$MEMCACHED_CLUSTER" ];then
+        MEMCACHED_HOST=`awk -v str="$MEMCACHED_CLUSTER" 'BEGIN{info=str;gsub(/\s+/,",",info);print info}'`
+    fi
+}
+
+get_mq_pwd(){
+    get_input "MQ_PWD" "Input Advanced Message Queue Password: "
+    ensure_config
+}
+ntp_client_config(){
+    crontab -l | grep -v '^#' > /tmp/crontab
+    sed -i "/ntpdate /d" /tmp/crontab
+    ( cat | sudo tee -a /tmp/crontab ) <<EOF
+*/5 * * * * su - root -c '/usr/sbin/ntpdate $1 >/dev/null&'
+EOF
+
+    /usr/sbin/ntpdate $1
+    RETVAL=$?; quick_check $RETVAL "sync ntp!"
+
+    crontab /tmp/crontab
+    rm -f /tmp/crontab
+    systemctl disable ntpd.service
+    systemctl stop ntpd.service
+    systemctl enable crond.service
+    systemctl start crond.service
+}
+ntp_server_config(){
+    install_pkg "ntp"
+
+    sed -i '/^server .*/d' /etc/ntp.conf
+    sed -i '/server 127.127.1.0/d' /etc/ntp.conf
+    sed -i '/fudge 127.127.1.0 stratum 8/d' /etc/ntp.conf
+
+    cat >>/etc/ntp.conf <<EOF
+server 127.127.1.0
+fudge 127.127.1.0 stratum 8
+EOF
+    arr=(${NTP_SYNC_SERVERS//,/ })
+    for s in ${arr[*]};do
+        cat >>/etc/ntp.conf <<EOF
+server ${s}
+EOF
+    done
+
+    systemctl enable ntpd.service
+    systemctl restart ntpd.service
+}
+
+mysql_client_config(){
+    install_pkg "MySQL-python"
+}
+
+#=============================================================CEPH
+get_ceph_cluster_network(){
+    reg_info="^${REG_ETH} ${REG_IP} ${REG_IP}\$"
+    get_input "CEPH_CLUSTER_NETWORK" "Input CEPH Cluster Network INFO [eth0 192.168.1.3 255.255.255.0]: " "$reg_info"
+    arr=(${CEPH_CLUSTER_NETWORK// / })
+    CEPH_CLUSTER_NETWORK_ETH=${arr[0]}
+    CEPH_CLUSTER_NETWORK_IP=${arr[1]}
+    CEPH_CLUSTER_NETWORK_MASK=${arr[2]}
+
+    tmpa=$NETWORK; tmpb=$BROADCAST; tmpc=$PREFIX
+    eval `ipcalc -mbpn $CEPH_CLUSTER_NETWORK_IP $CEPH_CLUSTER_NETWORK_MASK`
+    CEPH_CLUSTER_NETWORK_NET=$NETWORK
+    CEPH_CLUSTER_NETWORK_BCAST=$BROADCAST
+    CEPH_CLUSTER_NETWORK_PREFIX=$PREFIX
+    CEPH_CLUSTER_NETWORK_CIDR="$NETWORK/$PREFIX"
+    NETWORK=$tmpa; BROADCAST=$tmpb; PREFIX=$tmpc
+
+    ensure_config
+}
+get_ceph_cluster_cidr(){
+    reg_info="^${REG_IP}/\d\d\$"
+    get_input "CEPH_CLUSTER_NETWORK_CIDR" "Input CEPH Cluster Network CIDR [192.168.1.0/24]: " "$reg_info"
+    ensure_config
+}
+get_ceph_conf_file(){
+    reg_info="^[\w/]+\.conf\$"
+    get_input "CEPH_CONF_FILE" "Input CEPH conf file path: " "$reg_info"
+    ensure_config
+}
+
+get_ceph_pure_disk_map(){
+    reg_info="^(\w{3,5} ?)+\$"
+    get_input "CEPH_OSD_DISK_MAPS" "Input CEPH DISK MAP[sdx sdy sdz]: " "$reg_info"
+    ensure_config
+    CEPH_OSD_DISK_MAPS=(${CEPH_OSD_DISK_MAPS// / })
+
+    for dev in ${CEPH_OSD_DISK_MAPS[*]};do
+        if [ ! -e "/dev/${dev}" ];then
+            echo "disk /dev/${dev} not exist, re-input --->"
+            get_ceph_pure_disk_map
+            return
+        fi
+    done
+}
+
+get_ceph_hybrid_disk_map(){
+    # reg_info="^[\w :,]+\$"
+    reg_info="^(\w{3,5}:(\w{3,5},)*\w{3,5} ?)+\$"
+    get_input "CEPH_OSD_DISK_MAPS" "Input CEPH DISK MAP[sdx:sdb,sdc,sdd sdy:sde,sdf,sdg]: " "$reg_info"
+    ensure_config
+    CEPH_OSD_DISK_MAPS=(${CEPH_OSD_DISK_MAPS// / })
+
+    for map in ${CEPH_OSD_DISK_MAPS[*]};do
+        map=(${map//:/ })
+        journal_disk=${map[0]}
+        data_disks=${map[1]}
+        if [[ "" == $journal_disk || "" == $data_disks ]]; then
+            echo "disk map check error: ${map[0]}:${map[1]}, re-input --->"
+            CEPH_OSD_DISK_MAPS=''
+            get_ceph_hybrid_disk_map
+            return
+        fi
+
+        data_disks=(${data_disks//,/ })
+        data_disks_num=${#data_disks[*]}
+        for dev in ${journal_disk} ${data_disks[*]};do
+            echo $dev
+            if [ ! -e "/dev/${dev}" ];then
+                echo "disk ${dev} not exist, re-input --->"
+                CEPH_OSD_DISK_MAPS=''
+                get_ceph_hybrid_disk_map
+                return
+            fi
+        done
+    done
+}
+
+get_ceph_disk_map(){
+    if [[ 'hybrid' == $CEPH_OSD_DISK_MAP_TYPE ]];then
+        get_ceph_hybrid_disk_map
+    else
+        get_ceph_pure_disk_map
+    fi
+}
+
+get_ceph_admin_key_file(){
+    reg_info="^[\w/]+\.client\.admin\.keyring\$"
+    get_input "CEPH_ADMIN_KEY_FILE" "Input CEPH admin key file path: " "$reg_info"
+    ensure_config
+}
+get_ceph_osd_key_file(){
+    reg_info="^[\w/]+\.keyring\$"
+    get_input "CEPH_OSD_KEY_FILE" "Input CEPH osd key file path: " "$reg_info"
+    ensure_config
+}
+get_ceph_mon_members(){
+    reg_info="^${REG_HOSTNAME},${REG_IP}\$|^(${REG_HOSTNAME},${REG_IP} )+${REG_HOSTNAME},${REG_IP}\$"
+    get_input "CEPH_MON_MEMBERS" "Input CEPH MON member list [node151,192.168.8.151 node152,192.168.8.152]: " "$reg_info"
+    ensure_config
+}
+
+get_ceph_hosts(){
+    arg=(${1// / })
+    ret=''
+    for i in ${arg[*]};do
+        arr=(${i//,/ })
+        if [ "" == "$ret" ];then
+            ret="${arr[1]} ${arr[0]}"
+        else
+            ret="${ret} \n${arr[1]} ${arr[0]}"
+        fi
+    done
+    echo -e $ret
+}
+
+config_ceph_hosts(){
+    ret=`get_ceph_hosts "${CEPH_MON_MEMBERS[@]}"`
+    cat >>/etc/hosts <<EOF
+`echo -e $ret`
+EOF
+}
+
+get_ceph_mon_initial_members(){
+    arg=(${1// / })
+    ret=''
+    for i in ${arg[*]};do
+        arr=(${i//,/ })
+        if [ "" == "$ret" ];then
+            ret="${arr[0]}"
+        else
+            ret="${ret}"",${arr[0]}"
+        fi
+    done
+    echo -e $ret
+}
+
+get_ceph_mon_initial_hosts(){
+    arg=(${1// / })
+    ret=''
+    for i in ${arg[*]};do
+        arr=(${i//,/ })
+        if [ "" == "$ret" ];then
+            ret="${arr[1]}"
+        else
+            ret="${ret}"",${arr[1]}"
+        fi
+    done
+    echo -e $ret
+}
+
+get_free_disk(){
+    disks=`fdisk -l | grep -P '^Disk /dev/' | grep -v '/mapper' | awk -F "[/:]" '{print $3}'`
+    pv_partitions=`pvdisplay | grep 'PV Name' | awk -F "[/]" '{print $3}'`
+    mount_partitions=`mount | grep -P '^/dev' | grep -v 'mapper' | awk -F "[ /]" '{print $3}'`
+    used_partitions=$pv_partitions" "$mount_partitions
+    free_disks=""
+    used_disks=""
+    for disk in $disks; do
+        used='false'
+        for p in $used_partitions; do
+            ret=`strpos $p $disk`
+            if [ 0 -ne $ret ];then
+                used='true'
+                break
+            fi
+        done
+
+        if [ 'false' == "$used" ];then
+            free_disks="$free_disks $disk"
+        fi
+    done
+    echo $free_disks
+}
+
+#=============================================================String
+#计算字符串长度
+function strlen(){
+    str=$1
+    echo ${#str}
+}
+
+#获取子串
+function substr(){
+    str=$1
+    echo ${str:$2:$3}
+    #or echo $str | cut -c$2-$3
+}
+
+#查找子串位置
+function strpos(){
+    echo $(echo $1 $2|awk '{print index($1, $2)}')
+}
+
+#字符串替换
+function str_replace(){
+    echo $1 | sed "s/$2/$3/g"
+}
+
+#取给定时间的前一天
+function get_day_before(){
+    seconds=`date -d $1 +%s`       #get seconds of given date
+    seconds_yesterday=$((seconds - 86400))
+    day_before=`date -d @$seconds_yesterday +%F`
+    echo $day_before
+}
+
+#删除空行
+function delete_empty_line(){
+    sed -e '/^$/d' $1
+}
+
+
+attach_nic_to_ovs_bridge(){
+    BR=$1
+    NIC=$2
+    IP=$3
+    MASK=$4
+
+    ip link show $BR
+    RETVAL=$?
+    if [ 0 -eq ${RETVAL} ];then
+        return
+    fi
+    ovs-vsctl add-br $BR
+    RETVAL=$?; quick_check $RETVAL "add $BR!"
+    cat > /etc/sysconfig/network-scripts/ifcfg-$BR<<EOF
+DEVICE=$BR
+DEVICETYPE=ovs
+TYPE=OVSBridge
+BOOTPROTO=static
+NM_CONTROLLED="no"
+ONBOOT=yes
+IPADDR=${IP}
+NETMASK=${MASK}
+EOF
+        mac=`get_mac ${NIC}`
+        cat > /etc/sysconfig/network-scripts/ifcfg-${NIC}<<EOF
+DEVICE=${NIC}
+NM_CONTROLLED="no"
+TYPE=OVSPort
+DEVICETYPE=ovs
+OVS_BRIDGE=$BR
+NM_CONTROLLED="no"
+ONBOOT=yes
+HWADDR=${mac}
+EOF
+    cat /etc/sysconfig/network-scripts/route-${NIC} > /etc/sysconfig/network-scripts/route-${BR}
+    >/etc/sysconfig/network-scripts/route-${NIC}
+    sed -i "s/${NIC}/${BR}/g" /etc/sysconfig/network-scripts/route-${BR}
+
+    ifdown $NIC
+    ifdown $BR
+
+    ifup $BR
+    RETVAL=$?; quick_check $RETVAL "ifup $BR!"
+
+    ifup $NIC
+    RETVAL=$?; quick_check $RETVAL "ifup $NIC!"
+}

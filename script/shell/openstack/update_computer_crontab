@@ -1,0 +1,14 @@
+#!/bin/bash
+crontab -l | grep -v '^#' > mycrontab
+
+sed -i '/ntpdate/d' mycrontab
+sed -i '/phicloud_kxy_deny/d' mycrontab
+sed -i '/set_linux_bridge_port_up/d' mycrontab
+
+( cat | sudo tee -a mycrontab ) <<EOF
+*/5 * * * * su - root -c '/usr/sbin/ntpdate 10.16.128.100 >/dev/null&'
+* * * * * su - root -c '/usr/local/bin/phicloud_kxy_deny >/dev/null&'
+* * * * * su - root -c '/usr/local/bin/set_linux_bridge_port_up >/dev/null&'
+EOF
+crontab mycrontab
+

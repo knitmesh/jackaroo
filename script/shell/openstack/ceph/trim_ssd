@@ -1,0 +1,10 @@
+#!/bin/bash
+parts="sdb1 sdb2 sdb3 sdb4 sdb5 sdb6 sdb7 sdb8 sdb9"
+for part in $parts
+do
+    if [ -e /dev/$part ];then
+        echo "discard $part"
+        blkdiscard /dev/$part
+    fi
+done
+

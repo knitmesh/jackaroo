@@ -1,0 +1,55 @@
+#!/bin/bash
+disks="vdb vdb vdb"
+runtime=1200
+bs_list="4 64 256 512"
+test_size=300
+tmp_file='/tmp/result.txt'
+result_file=ceph_result.txt
+log_file=ceph_test.log
+numjobs=1
+
+>$result_file
+>$log_file
+
+save_result(){
+    rw_type=$1
+    file=$2
+    echo "===============${rw_type}=============" >>$result_file
+    mbps=`cat $file | grep 'iops=' | awk -F'bw=' '{print $2}' | awk -F',' '{print $1}'`
+    iops=`cat $file | grep 'iops=' | awk -F'iops=' '{print $2}' | awk -F',' '{print $1}'`
+    avg=`cat $file | grep 'clat (msec' | awk -F'avg=' '{print $2}' | awk -F',' '{print $1}'`
+    most_avg=`cat $file | grep '95.00th' | awk -F '95.00th=' '{print $2}' | awk -F '[' '{print $2}' | awk -F ']' '{print $1}'`
+    group=`cat $file | grep "WRITE:"`
+    stats=`cat $file | grep "util="`
+    
+    echo "mbps: ${mbps}" >>$result_file
+    echo "iops: ${iops}" >>$result_file
+    echo "avg response time: ${avg}" >>$result_file
+    echo "most response time(95%): ${most_avg}" >>$result_file
+    echo "group stats: $group" >>$result_file
+    echo "disk stats: $stats" >>$result_file
+    cat $file >>$log_file
+}
+
+for disk in $disks
+do
+    echo "+++++++++++++++++++++++++++disk ${disk} test++++++++++++++++++++++++++++++++++" >>$result_file
+    echo "+++++++++++++++++++++++++++disk ${disk} test++++++++++++++++++++++++++++++++++" >>$log_file
+    for bs in $bs_list
+    do
+        echo "####################bs ${bs}k test#####################" >>$result_file
+        echo "####################bs ${bs}k test#####################" >>$log_file
+        fio -runtime=${runtime} -filename=/dev/${disk} -direct=1 -thread -rw=read -bs=${bs}k -size=${test_size}G -iodepth=64 -ioengine=libaio -numjobs=${numjobs} -name=mytest  >$tmp_file
+        save_result 'seq read' $tmp_file
+        fio -runtime=${runtime} -filename=/dev/${disk} -direct=1 -thread -rw=write -bs=${bs}k -size=${test_size}G -iodepth=64 -ioengine=libaio -numjobs=${numjobs} -name=mytest  >$tmp_file
+        save_result 'seq write' $tmp_file
+        fio -runtime=${runtime} -filename=/dev/${disk} -direct=1 -thread -rw=randread -bs=${bs}k -size=${test_size}G -iodepth=64 -ioengine=libaio -numjobs=${numjobs} -name=mytest  >$tmp_file
+        save_result 'rand read' $tmp_file
+        fio -runtime=${runtime} -filename=/dev/${disk} -direct=1 -thread -rw=randwrite -bs=${bs}k -size=${test_size}G -iodepth=64 -ioengine=libaio -numjobs=${numjobs} -name=mytest  >$tmp_file
+        save_result 'rand write' $tmp_file
+    done
+done
+
+
+# fio -runtime=60 -filename=/dev/sde -direct=1 -thread -rw=read -bs=512k -size=300G -iodepth=64 -ioengine=libaio -name=mytest
+

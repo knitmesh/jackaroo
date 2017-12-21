@@ -1,0 +1,55 @@
+#!/bin/bash
+STATE_FILE=/etc/keepalived/state
+
+mode=$1
+vip=$2
+interface=$3
+
+notify(){
+    logger -p local0.debug "keepalived switch to $mode mode start"
+    ip -o addr show $interface | grep -q $vip/32
+    vip_state=$?
+    compute_driver=$(openstack-config --get /etc/nova/nova.conf DEFAULT compute_driver)
+    if [[ $vip_state -eq 0 && $mode == 'master' ]]; then
+        echo -n $mode > $STATE_FILE
+        systemctl restart cloudkitty-processor \
+                          openstack-ceilometer-alarm-evaluator \
+                          openstack-ceilometer-central
+        if [ "nova.virt.ironic.IronicDriver" == "$compute_driver" ];then
+            systemctl restart openstack-ironic-api openstack-ironic-conductor neutron-dhcp-agent neutron-linuxbridge-agent neutron-metadata-agent
+        fi
+        logger -p local0.debug "keepalived switch to $mode mode end"
+    elif [[ $vip_state -ne 0 && $mode != 'master' ]]; then
+        echo -n $mode > $STATE_FILE
+        systemctl stop cloudkitty-processor \
+                       openstack-ceilometer-alarm-evaluator \
+                       openstack-ceilometer-central
+        if [ "nova.virt.ironic.IronicDriver" == "$compute_driver" ];then
+            systemctl stop openstack-ironic-api openstack-ironic-conductor neutron-dhcp-agent neutron-linuxbridge-agent neutron-metadata-agent 
+            local metadata_proxy_pids=$(ps -ef | grep neutron-ns-metadata-proxy | grep -v grep | awk '{print $2}')
+            if [ "" != "$metadata_proxy_pids" ];then
+                kill -9 $metadata_proxy_pids
+            fi
+            pkill dnsmasq
+            for ns in $(ip netns | grep qdhcp-);do
+              ip netns del $ns
+            done
+        fi
+        logger -p local0.debug "keepalived switch to $mode mode end"
+    fi
+}
+
+case "$mode" in
+    master)
+        notify
+        exit 0
+        ;;
+    backup|fault|stop)
+        notify
+        exit 0
+        ;;
+    *)
+        echo -e "\033[40;31mMode Error!!\033[0m"
+        exit 1
+        ;;
+esac

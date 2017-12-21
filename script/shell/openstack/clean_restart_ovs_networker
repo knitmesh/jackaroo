@@ -1,0 +1,15 @@
+#!/bin/bash
+nss=`ip netns`
+for ns in $nss;do
+    ip netns del $ns
+done
+neutron-ovs-cleanup
+
+rm /var/log/neutron/* -f
+
+echo "restart l3 agent"
+systemctl restart neutron-l3-agent neutron-dhcp-agent
+sleep 5
+echo "restart ovs agent"
+systemctl restart neutron-openvswitch-agent neutron-metadata-agent
+

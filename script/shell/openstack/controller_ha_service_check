@@ -1,0 +1,12 @@
+#!/bin/bash
+
+killall -0 haproxy
+RETVAL=$?
+if [ "0" != "$RETVAL" ];then
+    logger "keepalived check service: process not exist"
+    echo "keepalived check service: process not exist" >>/var/log/keepalived.log
+    exit 1
+fi
+
+echo "keepalived check service: process exist" >>/var/log/keepalived.log
+exit 0

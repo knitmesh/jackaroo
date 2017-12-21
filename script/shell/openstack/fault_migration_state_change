@@ -1,0 +1,94 @@
+#!/bin/bash
+STATE_FILE=/etc/keepalived/fault_migration_state
+
+TEMP=`getopt -o m:v:r: --long mode:,vip: \
+     -n 'notify' -- "$@"`
+if [ $? != 0 ] ; then 
+    echo "Args Error, Terminating..." >&2 
+    logger "Args Error, Terminating..."
+    exit 1
+fi
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -m|--mode) MODE=$2 ; shift 2 ;;
+        -v|--vip) VIP=$2 ; shift 2 ;;
+        --) shift ; break ;;
+        *) echo "Args Internal error!" ; exit 1 ;;
+    esac
+done
+
+VIP_NUM=$(echo $VIP | awk -F ',' '{print NF}')
+
+function handle_master(){
+    logger "fault_migration switch to master mode start"
+    state=0
+    for ((i=1; i <= $VIP_NUM; i++)); do
+      vip=$(echo $VIP | awk -F ',' "{print "\$" $i}")
+      ip -o addr show | grep -q $vip/32
+      vip_state=$?
+      if [[ $vip_state -eq 0 ]]; then
+        let state=state+1
+      fi
+    done
+
+    if [ $state -eq $VIP_NUM ]; then
+      echo -n "master" >${STATE_FILE}
+      logger "fault_migration switch to master mode end"
+    fi
+}
+
+function handle_backup(){
+    logger "fault_migration switch to backup mode start"
+    state=0
+    for ((i=1; i <= $VIP_NUM; i++)); do
+      vip=$(echo $VIP | awk -F ',' "{print "\$" $i}")
+      ip -o addr show | grep -q $vip/32
+      vip_state=$?
+      if [[ $vip_state -ne 0 ]]; then
+        let state=state+1
+      fi
+    done
+
+    if [ $state -eq $VIP_NUM ]; then
+      echo -n "backup" >${STATE_FILE}
+      logger "fault_migration switch to backup mode end"
+    fi
+}
+
+function handle_fault(){
+    logger "fault_migration switch to fault mode start"
+    state=0
+    for ((i=1; i <= $VIP_NUM; i++)); do
+      vip=$(echo $VIP | awk -F ',' "{print "\$" $i}")
+
+      ip -o addr show | grep -q $vip/32
+      vip_state=$?
+      if [[ $vip_state -ne 0 ]]; then
+        let state=state+1
+      fi
+    done
+
+    if [ $state -eq $VIP_NUM ]; then
+      echo -n "fault" >${STATE_FILE}
+      logger "fault_migration switch to fault mode end"
+    fi
+}
+
+case "$MODE" in
+    'master')
+    handle_master
+    exit 0
+    ;;
+    'backup')
+    handle_backup
+    exit 0
+    ;;
+    'fault')
+    handle_fault
+    exit 0
+    ;;
+    *) 
+    echo -e "\033[40;31mMode Error!!\033[0m"
+esac

@@ -1,0 +1,32 @@
+#!/bin/bash
+journal_disk=sdb
+data_disks=(sdc sdd sde)
+data_num=${#data_disks[@]}
+
+sgdisk -o /dev/$journal_disk
+total_size=300
+total_size=$(( $total_size*1024*1024 ))
+part_size=$(( $total_size/$data_num ))
+ptype='45b0969e-9b03-4f30-b4c6-b4b80ceff106'
+for ((partnum=1;partnum<=$data_num;partnum++));do
+    journal_uuid=`uuidgen`
+    start=$(( ($partnum-1)*$part_size ))
+    end=$(( $start+$part_size-1 ))
+    if [[ "$partnum" == "$data_num" ]]; then
+        sgdisk --largest-new=$partnum --change-name="$partnum:ceph journal $partnum" --partition-guid="$partnum:${journal_uuid}" --typecode="$partnum:${ptype}" --mbrtogpt -- /dev/$journal_disk
+        break
+    fi
+    sgdisk --new="$partnum:${start}K:${end}K" --change-name="$partnum:ceph journal $partnum" --partition-guid="$partnum:${journal_uuid}" --typecode="$partnum:${ptype}" --mbrtogpt -- /dev/$journal_disk
+done
+
+for ((partnum=1;partnum<=$data_num;partnum++));do
+    sgdisk -i $partnum /dev/$journal_disk
+    echo ""
+done
+
+for ((i=0;i<$data_num;i++))
+do
+    partnum=$(( $i+1 ))
+    ceph-disk -v prepare --cluster ceph --fs-type xfs /dev/${data_disks[i]} /dev/${journal_disk}${partnum}
+done
+
