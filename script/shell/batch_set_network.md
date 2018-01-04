@@ -77,6 +77,10 @@ set_network $1 $2 $3
 
 for host in $(cat remote-hosts)
         do
+        if [[ ! "$host" =~ ^# ]];
+        then
+
+        
         ip=$(echo ${host} | awk -F '[-:]' '{print $3}')
         hostname=$(echo ${host} | cut -f1 -d ":")
         echo ${hostname}
@@ -91,7 +95,7 @@ for host in $(cat remote-hosts)
         echo "重启网卡"
         sshpass -p ${password} ssh "root@${hostname}" 'systemctl restart network'
         sshpass -p ${password} ssh "root@${hostname}" 'ip a'
-
+        fi
         done
 
 
