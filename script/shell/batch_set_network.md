@@ -1,11 +1,14 @@
 ### 1. 配置需要修改网卡的主机名和密码的对应列表
 ```bash
 tee remote-hosts <<-EOF
-kolla-con1:aaaaaa
-kolla-con2:aaaaaa
-kolla-con3:aaaaaa
-kolla-com1:aaaaaa
-kolla-com2:aaaaaa
+develop-r1-controller-2:openstack@123:172.16.92.2
+develop-r1-controller-3:openstack@123:172.16.92.3
+develop-r1-controller-4:openstack@123:172.16.92.4
+develop-r1-computer-5:openstack@123:172.16.92.5
+develop-r1-computer-6:openstack@123:172.16.92.6
+develop-r1-computer-7:openstack@123:172.16.92.7
+develop-r1-computer-8:openstack@123:172.16.92.8
+develop-r1-computer-9:openstack@123:172.16.92.9
 EOF
 ```
 
@@ -22,7 +25,7 @@ function set_network(){
     echo $1
     cd $BASE_DIR
     if [ ! -f "$1" ];then
-        echo "文件不存在"
+        echo "文件不存在: ${BASE_DIR}"
     else
         mkdir -p $BASE_DIR/backups
         bak_name=${1}.blk_`date +%m%d%H%M%S`
@@ -80,13 +83,11 @@ for host in $(cat remote-hosts)
         if [[ ! "$host" =~ ^# ]];
         then
 
-        
-        ip=$(echo ${host} | awk -F '[-:]' '{print $3}')
+        ip=$(echo ${host} | awk -F '[:]' '{print $1}' | awk -F '[-]' '{print $NF}')
         hostname=$(echo ${host} | cut -f1 -d ":")
-        echo ${hostname}
         password=$(echo ${host} | cut -f2 -d ":")
-
-
+        echo "hostname:${hostname} password:${password} ip: ${ip}"
+       
         sshpass -p ${password} ssh "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens192" "10.120.200.${ip}" ""
         sshpass -p ${password} ssh "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens224" "10.10.100.${ip}" ""
         sshpass -p ${password} ssh "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens256" "10.10.200.${ip}" ""
@@ -97,7 +98,6 @@ for host in $(cat remote-hosts)
         sshpass -p ${password} ssh "root@${hostname}" 'ip a'
         fi
         done
-
 
 ```
 
