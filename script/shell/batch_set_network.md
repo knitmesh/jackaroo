@@ -88,14 +88,14 @@ for host in $(cat remote-hosts)
         password=$(echo ${host} | cut -f2 -d ":")
         echo "hostname:${hostname} password:${password} ip: ${ip}"
        
-        sshpass -p ${password} ssh "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens192" "10.120.200.${ip}" ""
-        sshpass -p ${password} ssh "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens224" "10.10.100.${ip}" ""
-        sshpass -p ${password} ssh "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens256" "10.10.200.${ip}" ""
+        sshpass -p ${password} ssh -o StrictHostKeyChecking=no "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens192" "10.120.200.${ip}" ""
+        sshpass -p ${password} ssh -o StrictHostKeyChecking=no "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens224" "10.10.100.${ip}" ""
+        sshpass -p ${password} ssh -o StrictHostKeyChecking=no "root@${hostname}" 'bash -s' < set_networks.sh "ifcfg-ens256" "10.10.200.${ip}" ""
 
         # restart
         echo "重启网卡"
-        sshpass -p ${password} ssh "root@${hostname}" 'systemctl restart network'
-        sshpass -p ${password} ssh "root@${hostname}" 'ip a'
+        sshpass -p ${password} ssh -o StrictHostKeyChecking=no "root@${hostname}" 'systemctl restart network'
+        sshpass -p ${password} ssh -o StrictHostKeyChecking=no "root@${hostname}" 'ip a'
         fi
         done
 

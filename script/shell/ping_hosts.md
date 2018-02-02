@@ -31,9 +31,11 @@ for host in $(cat remote-hosts)
         do
     
         ip=$(echo ${host} | awk -F '[:]' '{print $1}' | awk -F '[-]' '{print $NF}')
-        ping_hosts "10.20.200.${ip}"
+        ping_hosts "10.120.200.${ip}"
         ping_hosts "10.10.100.${ip}"
         ping_hosts "10.10.200.${ip}"
+        ping_hosts "172.16.92.${ip}"
+        
         done
 
 
