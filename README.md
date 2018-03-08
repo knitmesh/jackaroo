@@ -40,6 +40,17 @@
 * [全文检索](lucene)
     * [ElasticSearch存储相关](lucene/ElasticSearch存储相关.md)
 
+### 服务配置汇总
+* [服务配置](service-configuration)
+    * [haproxy](service-configuration/haproxy)
+    * [keepalived](service-configuration/keepalived)
+    * [mongodb](service-configuration/mongodb)
+    * [rabbitmq](service-configuration/rabbitmq)
+    * [keepalived](service-configuration/keepalived)
+    * [mysql](service-configuration/my.cnf)
+    * [redis主从复制配置](service-configuration/redis主从复制配置.md)
+    * [redis配置说明](service-configuration/redis配置说明.md)
+
 ### 关于mysql的相关技术贴；
 * [mysql](mysql)
     * [README.md](mysql/README.md)
