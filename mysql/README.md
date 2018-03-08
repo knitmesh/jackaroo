@@ -275,7 +275,8 @@ MySQL主从同步的步骤
 
 ```
 如下图所示：
-![image](http://7xrthw.com1.z0.glb.clouddn.com/githubmysql-master-slave-proxy.jpg) 
+![@1|center](../images/mysql-master-slave-proxy.jpg)
+
 ```
 下面是我在实际工作过程中所整理的笔记，在此分享出来，以供大家参考。
 

@@ -24,7 +24,7 @@ key (username(12)) USING BTREE — 此处 uname 列只创建了最左12个字符
 
 一个经典的B+树索引数据结构见下图：
 
-![@1|center](../master/src/suoyin1.jpg)
+![@1|center](./src/suoyin1.jpg)
 
 B+树是一个平衡的多叉树，从根节点到每个叶子节点的高度差值不超过1，而且同层级的节点间有指针相互链接。
 
@@ -40,7 +40,7 @@ https://en.wikipedia.org/wiki/XFS
 
 而哈希索引的示意图则是这样的：
 
-![@1|center](../master/src/suoyin2.jpg)
+![@1|center](./src/suoyin2.jpg)
 
 简单地说，哈希索引就是采用一定的哈希算法，把键值换算成新的哈希值，检索时不需要类似B+树那样从根节点到叶子节点逐级查找，只需一次哈希算法即可立刻定位到相应的位置，速度非常快。
 

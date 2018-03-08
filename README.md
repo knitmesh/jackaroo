@@ -29,6 +29,17 @@
     * [Nginx基本配置备忘](Nginx/Nginx基本配置备忘)       
     * [将Nginx配置为Web服务器](Nginx/如何将%20Nginx%20配置为Web服务器)
 
+### 关于rabbitmq的相关技术贴
+* [学习笔记](learnmq)
+    * [rabbitmq基本概念](learnmq/doc/rabbitmq基本概念.md)
+    * [rabbitmq常用管理命令](learnmq/doc/rabbitmq常用管理命令.md)
+    * [centos7下安装rebbitmq](learnmq/doc/centos7下安装rebbitmq.md)
+    * [demo](learnmq/python)
+    
+### 关于全文检索的相关技术贴
+* [全文检索](lucene)
+    * [ElasticSearch存储相关](lucene/ElasticSearch存储相关.md)
+
 ### 关于mysql的相关技术贴；
 * [mysql](mysql)
     * [README.md](mysql/README.md)

@@ -111,7 +111,7 @@
         
         
         
-![image](http://img.my.csdn.net/uploads/201208/07/1344276770_7117.png)
+![@1|center](../../images/eventlet.png)
 
 ##### 4.3. Patching Functions（补丁方法）
 

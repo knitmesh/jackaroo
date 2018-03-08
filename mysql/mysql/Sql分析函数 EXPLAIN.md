@@ -74,7 +74,7 @@ EXPLAIN执行计划中有一列 key_len 用于表示本次查询中，所选择�
 
 综上，看下面几个例子：
 
-![@1|center](../master/src/explain1.png)
+![@1|center](./src/explain1.png)
 
 
 备注，key_len 只指示了WHERE中用于条件过滤时被选中的索引列，是不包含 ORDER BY/GROUP BY 这部分被选中的索引列。
