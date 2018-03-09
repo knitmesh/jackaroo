@@ -102,7 +102,7 @@
 
 ### 版本管理
 * [git](learngit)
-    *[git命令](learngit/command.md)
+    * [git命令](learngit/command.md)
 
 ### 关于编程语言的相关技术贴    
 * [python](learnpy)
