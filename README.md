@@ -99,7 +99,11 @@
 ### 关于linux的相关技术贴
 * [命令](command/)
     * [Sed与Awk学习笔记](command/Sed与Awk学习笔记)   
-    
+
+### 版本管理
+* [git](learngit)
+    *[git命令](learngit/command.md)
+
 ### 关于编程语言的相关技术贴    
 * [python](learnpy)
     * [库](learnpy/lib-demo/README.md)   
