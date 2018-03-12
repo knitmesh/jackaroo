@@ -14,7 +14,8 @@
 ### 记录一些经常使用的脚本；
 * [常用脚本](script)
     * [shell脚本](script/shell)
-        * [openstack scropt](script/shell/openstack)
+        * [openstack script](script/shell/openstack)
+        * [install script](script/shell/install)
         * [多主机批量设置网卡](script/shell/batch_set_network.md)
         * [清理ci构建的旧版本包](script/shell/clear_packages.md)
         * [批量配置免密登录](script/shell/openstack%20批量配置免密登录.md)
