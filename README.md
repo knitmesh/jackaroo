@@ -101,6 +101,7 @@
 ### 版本管理
 * [git](learngit)
     * [git命令](learngit/command.md)
+    * [git技巧](learngit/git技巧.md)
 
 ### 编程语言相关    
 * [python](learnpy)
