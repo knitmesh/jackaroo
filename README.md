@@ -104,6 +104,7 @@
     * [git技巧](learngit/git技巧.md)
     * [设置ssh](learngit/设置ssh.md)
     * [管理git生成的多个ssh key](learngit/管理git生成的多个sshkey.md)
+    * [恢复误删除的分支](learngit/恢复误删除的分支.md)
 
 ### 编程语言相关    
 * [python](learnpy)
