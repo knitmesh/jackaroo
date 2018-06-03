@@ -112,20 +112,34 @@ f1 = lambda n: 1 if n < 2 else f1(n - 1) + f1(n - 2)
 # 使用Step-wise线性搜索。
 # 思路: 从右上角开始，每次将搜索值与右上角的值比较，如果大于右上角的值，则直接去除1行，否则，则去掉1列
 # 参考: https://blog.csdn.net/pi9nc/article/details/9082997
-def find1(l, x):
-    m = len(l) - 1
-    n = len(l[0]) - 1
+def find1(arrays, target):
     r = 0
-    c = n
-    while c >= 0 and r <= m:
-        value = l[r][c]
-        if value == x:
+    c = len(arrays[0]) - 1
+    while c >= 0 and r <= len(arrays) - 1:
+        if arrays[r][c] > target:
+            c -= 1
+        elif arrays[r][c] < target:
+            r += 1
+        else:
             return True
-        elif value > x:
-            c = c - 1
-        elif value < x:
-            r = r + 1
     return False
+
+# 从左下角元素往上查找，右边元素是比这个元素大，上边是的元素比这个元素小。
+# 于是，target比这个元素小就往上找，比这个元素大就往右找。
+# 如果出了边界，则说明二维数组中不存在target元素。
+def find2(arrays, target):
+    # write code here
+    r = len(arrays) - 1
+    c = 0
+    while r >= 0 and c < len(arrays[0]):
+        if arrays[r][c] > target:
+            r -= 1
+        elif arrays[r][c] < target:
+            c += 1
+        else:
+            return True
+    return False
+
 
 if __name__ == "__main__":
     num = 6
@@ -145,4 +159,6 @@ if __name__ == "__main__":
         [10, 13, 14, 17, 24],
         [18, 21, 23, 26, 30],
     ]
-    print(find1(l, 12))
+    print(find1(l, 9))
+
+    print(find2(l, 9))
